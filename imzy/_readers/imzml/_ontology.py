@@ -11,6 +11,8 @@ all_terms.update(uo_terms)
 all_terms.update(ms_terms)
 all_terms.update(ims_terms)
 
+XMLNS_PREFIX = "{http://psi.hupo.org/ms/mzml}"
+
 DTYPE_MAPPING = {
     "xsd:string": str,
     "xsd:anyURI": str,
@@ -93,3 +95,13 @@ def lookup_and_convert_cv_param(accession, raw_name, value, unit_accession=None)
             warn(f'Accession {accession} found with incorrect name "{raw_name}". Updating name to "{name}".')
 
     return accession, name, converted_value, unit_name
+
+
+def get_cv_param(elem, accession, deep=False, convert=False):
+    """Get CV parameter."""
+    base = ".//" if deep else ""
+    node = elem.find(f'{base}{XMLNS_PREFIX}cvParam[@accession="{accession}"]')
+    if node is not None:
+        if convert:
+            return convert_cv_param(accession, node.get("value"))
+        return node.get("value")

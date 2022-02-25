@@ -5,8 +5,9 @@ from warnings import warn
 
 import numpy as np
 
-from imzy._readers._base import BaseReader
-from imzy.types import PathLike
+from ...types import PathLike
+from .._base import BaseReader
+from ._ontology import get_cv_param
 
 PRECISION_DICT = {"32-bit float": "f", "64-bit float": "d", "32-bit integer": "i", "64-bit integer": "l"}
 SIZE_DICT = {"f": 4, "d": 8, "i": 4, "l": 8}
@@ -51,10 +52,14 @@ class IMZMLReader(BaseReader):
 
     _ibd_path: ty.Optional[Path] = None
     _icache_path: ty.Optional[Path] = None
+    _is_centroid: bool = None
 
     def __init__(self, path: PathLike, ibd_path: ty.Optional[PathLike] = None):
         super().__init__(path)
         self._init(ibd_path)
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}<{self.path}; centroid={self.is_centroid}>"
 
     def _init(self, ibd_path: ty.Optional[PathLike] = None):
         """Initialize metadata."""
@@ -88,7 +93,15 @@ class IMZMLReader(BaseReader):
     @property
     def is_centroid(self) -> bool:
         """Flag to indicate whether data is in centroid or profile mode."""
-        return
+        if self._is_centroid is None:
+            x, _ = self.get_spectrum(0)
+            for _x, _ in self._read_spectra(range(1, self.n_pixels)):
+                if _x.shape != x.shape:
+                    self._is_centroid = True
+                    break
+            if self._is_centroid is None:
+                self._is_centroid = False
+        return self._is_centroid
 
     def get_physical_coordinates(self, index: int):
         """For a pixel index i, return real-world coordinates in
@@ -104,7 +117,7 @@ class IMZMLReader(BaseReader):
         if len(array) != self.n_pixels:
             raise ValueError("Wrong size and shape of the array.")
         im = np.zeros((self.metadata.PX_MAX_Y, self.metadata.PX_MAX_X))
-        im[self.y_coordinates, self.x_coordinates] = array
+        im[self.y_coordinates - 1, self.x_coordinates - 1] = array
         return im
 
     def _read_spectrum(self, index: int) -> ty.Tuple[np.ndarray, np.ndarray]:
@@ -319,33 +332,24 @@ def process_spectrum(elem, mz_group_id, int_group_id, sl: str = "{http://psi.hup
     """Process spectrum."""
     array_list_item = elem.find("%sbinaryDataArrayList" % sl)
     element_list = list(array_list_item)
-    element_list_sorted = [None, None]
+    mz_group, int_group = None, None
     for element in element_list:
         ref = element.find("%sreferenceableParamGroupRef" % sl).attrib["ref"]
         if ref == mz_group_id:
-            element_list_sorted[0] = element
+            mz_group = element
         elif ref == int_group_id:
-            element_list_sorted[1] = element
+            int_group = element
 
-    mz_offset_elem = element_list_sorted[0].find('%scvParam[@accession="IMS:1000102"]' % sl)
-    mz_offset = int(mz_offset_elem.attrib["value"])
-
-    mz_length_elem = element_list_sorted[0].find('%scvParam[@accession="IMS:1000103"]' % sl)
-    mz_length = int(mz_length_elem.attrib["value"])
-
-    intensity_offset_elem = element_list_sorted[1].find('%scvParam[@accession="IMS:1000102"]' % sl)
-    intensity_offset = int(intensity_offset_elem.attrib["value"])
-
-    intensity_length_elem = element_list_sorted[1].find('%scvParam[@accession="IMS:1000103"]' % sl)
-    intensity_length = int(intensity_length_elem.attrib["value"])
+    mz_offset = int(get_cv_param(mz_group, "IMS:1000102"))
+    mz_length = int(get_cv_param(mz_group, "IMS:1000103"))
+    intensity_offset = int(get_cv_param(int_group, "IMS:1000102"))
+    intensity_length = int(get_cv_param(int_group, "IMS:1000103"))
 
     scan_elem = elem.find(f"{sl}scanList/{sl}scan")
-    x = int(scan_elem.find('%scvParam[@accession="IMS:1000050"]' % sl).attrib["value"])
-    y = int(scan_elem.find('%scvParam[@accession="IMS:1000051"]' % sl).attrib["value"])
-    try:
-        z = int(scan_elem.find('%scvParam[@accession="IMS:1000052"]' % sl).attrib["value"])
-    except AttributeError:
-        z = 1
+    x = int(get_cv_param(scan_elem, "IMS:1000050"))
+    y = int(get_cv_param(scan_elem, "IMS:1000051"))
+    z = get_cv_param(scan_elem, "IMS:1000052")
+    z = int(z) if z is not None else 1
     return [mz_offset, mz_length, intensity_offset, intensity_length, x, y, z]
 
 

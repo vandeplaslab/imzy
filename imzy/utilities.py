@@ -102,10 +102,20 @@ def find_between_batch(array: np.ndarray, min_value: np.ndarray, max_value: np.n
 
 
 @numba.njit()
-def accumulate_regions(peaks_min: np.ndarray, peaks_max: np.ndarray, x: np.ndarray, y: np.ndarray):
+def accumulate_peaks_centroid(peaks_min: np.ndarray, peaks_max: np.ndarray, x: np.ndarray, y: np.ndarray):
     """Sum intensities for specified number of peaks."""
     indices = find_between_batch(x, peaks_min, peaks_max)
     result = np.zeros(len(peaks_min), dtype=y.dtype)
+    for i, mask in enumerate(indices):
+        if mask.size > 0:
+            result[i] = y[mask].sum()
+    return result
+
+
+@numba.njit()
+def accumulate_peaks_profile(indices: ty.List[np.ndarray], y: np.ndarray):
+    """Sum intensities for specified number of peaks."""
+    result = np.zeros(len(indices), dtype=y.dtype)
     for i, mask in enumerate(indices):
         if mask.size > 0:
             result[i] = y[mask].sum()
