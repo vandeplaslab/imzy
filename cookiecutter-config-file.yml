@@ -1,0 +1,13 @@
+# This file contains values from Cookiecutter
+
+default_context:
+  project_name: "imzy"
+  project_description: "imzy: A new reader/writer interface to imzML and other imaging mass spectrometry formats."
+  organization: "imzy"
+  license: "BSD-3"
+  minimal_python_version: 3.8
+  github_name: "imzy"
+  email: "l.g.migas@tudelft.nl"
+  version: "0.1.0"
+  line_length: "120"
+  create_example_template: "none"
