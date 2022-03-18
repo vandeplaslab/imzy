@@ -54,9 +54,19 @@ class IMZMLReader(BaseReader):
     _icache_path: ty.Optional[Path] = None
     _is_centroid: bool = None
 
-    def __init__(self, path: PathLike, ibd_path: ty.Optional[PathLike] = None):
+    def __init__(
+        self,
+        path: PathLike,
+        ibd_path: ty.Optional[PathLike] = None,
+        mz_ppm: float = 1.0,
+        mz_min: ty.Optional[float] = None,
+        mz_max: ty.Optional[float] = None,
+    ):
         super().__init__(path)
         self._init(ibd_path)
+        self.mz_ppm = mz_ppm
+        self._mz_min = mz_min
+        self._mz_max = mz_max
 
     def __repr__(self):
         return f"{self.__class__.__name__}<{self.path}; centroid={self.is_centroid}>"
@@ -112,13 +122,76 @@ class IMZMLReader(BaseReader):
         x, y, _ = self.xyz_coordinates[index]
         return x * self.metadata.PX_SIZE_X, y * self.metadata.PX_SIZE_Y
 
-    def reshape(self, array: np.ndarray) -> np.ndarray:
+    def reshape(self, array: np.ndarray, fill_value: float = 0) -> np.ndarray:
         """Reshape vector of intensities."""
         if len(array) != self.n_pixels:
             raise ValueError("Wrong size and shape of the array.")
-        im = np.zeros((self.metadata.PX_MAX_Y, self.metadata.PX_MAX_X))
+        dtype = np.float32 if np.isnan(fill_value) else array.dtype
+        im = np.full((self.metadata.PX_MAX_Y, self.metadata.PX_MAX_X), fill_value=fill_value, dtype=dtype)
         im[self.y_coordinates - 1, self.x_coordinates - 1] = array
         return im
+
+    def reshape_batch(self, array: np.ndarray, fill_value: float = 0) -> np.ndarray:
+        """Batch reshaping of images."""
+        if array.ndim != 2:
+            raise ValueError("Expected 2-D array.")
+        if len(array) != self.n_pixels:
+            raise ValueError("Wrong size and shape of the array.")
+        n = array.shape[1]
+        dtype = np.float32 if np.isnan(fill_value) else array.dtype
+        im = np.full((n, self.metadata.PX_MAX_X, self.metadata.PX_MAX_Y), fill_value=fill_value, dtype=dtype)
+        for i in range(n):
+            im[i, self.y_coordinates - 1, self.x_coordinates - 1] = array[:, i]
+        return im
+
+    def get_summed_spectrum(self, indices: ty.Iterable[int]) -> ty.Tuple[np.ndarray, np.ndarray]:
+        """Sum pixel data to produce summed mass spectrum."""
+        if self.is_centroid:
+            return self._get_summed_spectrum_centroid(indices)
+        else:
+            return self._get_summed_spectrum_profile(indices)
+
+    def _get_summed_spectrum_profile(self, indices: ty.Iterable[int]):
+        mz_x, mz_y = self[indices[0]]
+        mz_y = mz_y.copy().astype(np.float64)
+        for _, y in self._read_spectra(indices[1::]):
+            mz_y += y
+        return mz_x, mz_y
+
+    def _get_summed_spectrum_centroid(self, indices: ty.Iterable[int]):
+        # creating summed spectrum from centroided data is a lot harder because there is no consensus axis in which case
+        # we must create our own.
+        # We have decided to create resampled spectrum with pre-defined ppm limit. This is not ideal but its better than
+        # not doing it at all.
+        from ...utilities import get_ppm_axis, set_ppm_axis
+
+        mz_min, mz_max = self._estimate_mass_range()
+        mz_x = get_ppm_axis(mz_min, mz_max, self.mz_ppm)
+        mz_y = np.zeros_like(mz_x, dtype=np.float64)
+        for x, y in self._read_spectra(indices):
+            mz_y = set_ppm_axis(mz_x, mz_y, x, y)
+        return mz_x, mz_y
+
+    def _estimate_mass_range(self) -> ty.Tuple[float, float]:
+        """This function will iterate over portion of the spectra and try to determine what is min/max m/z value."""
+        if self._mz_min is None and self._mz_max is None:
+            if self.n_pixels < 5000:
+                indices = self.pixels
+            else:
+                indices = np.unique(np.random.choice(self.pixels, 5000, replace=False))
+            mz_min, mz_max = 1e6, 0
+            with open(self._ibd_path, "rb") as f_ptr:
+                for index in indices:
+                    mz_o, mz_l, _, _ = self.byte_offsets[index]
+                    f_ptr.seek(mz_o)
+                    x = np.frombuffer(f_ptr.read(mz_l * self._mz_size), dtype=self.mz_precision)
+                    x_min, x_max = x.min(), x.max()
+                    if x_min < mz_min:
+                        mz_min = x_min
+                    if x_max > mz_max:
+                        mz_max = x_max
+            self._mz_min, self._mz_max = mz_min, mz_max
+        return self._mz_min, self._mz_max
 
     def _read_spectrum(self, index: int) -> ty.Tuple[np.ndarray, np.ndarray]:
         with open(self._ibd_path, "rb") as f_ptr:
@@ -134,7 +207,7 @@ class IMZMLReader(BaseReader):
     ) -> ty.Iterator[ty.Tuple[np.ndarray, np.ndarray]]:
         """Read spectra without constantly opening and closing the file handle."""
         if indices is None:
-            indices = range(self.n_pixels)
+            indices = self.pixels
         with open(self._ibd_path, "rb") as f_ptr:
             for index in indices:
                 mz_o, mz_l, int_o, int_l = self.byte_offsets[index]
