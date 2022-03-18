@@ -4,6 +4,7 @@ from pathlib import Path
 from warnings import warn
 
 import numpy as np
+from tqdm.auto import tqdm
 
 from ...types import PathLike
 from .._base import BaseReader
@@ -96,6 +97,18 @@ class IMZMLReader(BaseReader):
                 print(error)
 
     @property
+    def mz_min(self) -> float:
+        """Minimum m/z value."""
+        mz_min, _ = self._estimate_mass_range()
+        return mz_min
+
+    @property
+    def mz_max(self) -> float:
+        """Maximum m/z value."""
+        _, mz_max = self._estimate_mass_range()
+        return mz_max
+
+    @property
     def metadata(self):
         """Cache."""
         return self._imzml_cache
@@ -144,37 +157,41 @@ class IMZMLReader(BaseReader):
             im[i, self.y_coordinates - 1, self.x_coordinates - 1] = array[:, i]
         return im
 
-    def get_summed_spectrum(self, indices: ty.Iterable[int]) -> ty.Tuple[np.ndarray, np.ndarray]:
+    def get_summed_spectrum(self, indices: ty.Iterable[int], silent: bool = False) -> ty.Tuple[np.ndarray, np.ndarray]:
         """Sum pixel data to produce summed mass spectrum."""
+        indices = np.asarray(indices)
+        if np.any(indices >= self.n_pixels):
+            raise ValueError("You cannot specify indices that are greater than the total number of pixels.")
         if self.is_centroid:
             return self._get_summed_spectrum_centroid(indices)
         else:
             return self._get_summed_spectrum_profile(indices)
 
-    def _get_summed_spectrum_profile(self, indices: ty.Iterable[int]):
+    def _get_summed_spectrum_profile(self, indices: ty.Iterable[int], silent: bool = False):
         mz_x, mz_y = self[indices[0]]
         mz_y = mz_y.copy().astype(np.float64)
-        for _, y in self._read_spectra(indices[1::]):
+        for _, y in tqdm(self._read_spectra(indices[1::]), total=len(indices) - 1, disable=silent):
             mz_y += y
         return mz_x, mz_y
 
-    def _get_summed_spectrum_centroid(self, indices: ty.Iterable[int]):
+    def _get_summed_spectrum_centroid(self, indices: ty.Iterable[int], silent: bool = False):
         # creating summed spectrum from centroided data is a lot harder because there is no consensus axis in which case
         # we must create our own.
         # We have decided to create resampled spectrum with pre-defined ppm limit. This is not ideal but its better than
         # not doing it at all.
-        from ...utilities import get_ppm_axis, set_ppm_axis
+        from ...utilities import get_ppm_axis, set_ppm_axis, trim_axis
 
         mz_min, mz_max = self._estimate_mass_range()
         mz_x = get_ppm_axis(mz_min, mz_max, self.mz_ppm)
         mz_y = np.zeros_like(mz_x, dtype=np.float64)
-        for x, y in self._read_spectra(indices):
+        for x, y in tqdm(self._read_spectra(indices), total=len(indices), disable=silent):
+            x, y = trim_axis(x, y, self._mz_min, self._mz_max)
             mz_y = set_ppm_axis(mz_x, mz_y, x, y)
         return mz_x, mz_y
 
     def _estimate_mass_range(self) -> ty.Tuple[float, float]:
         """This function will iterate over portion of the spectra and try to determine what is min/max m/z value."""
-        if self._mz_min is None and self._mz_max is None:
+        if self._mz_min is None or self._mz_max is None:
             if self.n_pixels < 5000:
                 indices = self.pixels
             else:
@@ -190,7 +207,10 @@ class IMZMLReader(BaseReader):
                         mz_min = x_min
                     if x_max > mz_max:
                         mz_max = x_max
-            self._mz_min, self._mz_max = mz_min, mz_max
+            if self._mz_min is None:
+                self._mz_min = mz_min
+            if self._mz_max is None:
+                self._mz_max = mz_max
         return self._mz_min, self._mz_max
 
     def _read_spectrum(self, index: int) -> ty.Tuple[np.ndarray, np.ndarray]:

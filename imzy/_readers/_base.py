@@ -48,6 +48,16 @@ class BaseReader:
         raise NotImplementedError("Must implement method")
 
     @property
+    def mz_min(self) -> float:
+        """Minimum m/z value."""
+        raise NotImplementedError("Must implement method")
+
+    @property
+    def mz_max(self) -> float:
+        """Maximum m/z value."""
+        raise NotImplementedError("Must implement method")
+
+    @property
     def xyz_coordinates(self) -> np.ndarray:
         """Return xyz coordinates."""
         return self._xyz_coordinates
@@ -86,7 +96,7 @@ class BaseReader:
         """Return mass spectrum."""
         return self._read_spectrum(index)
 
-    def get_summed_spectrum(self, indices: ty.Iterable[int]):
+    def get_summed_spectrum(self, indices: ty.Iterable[int], silent: bool = False):
         """Sum pixel data to produce summed mass spectrum."""
         raise NotImplementedError("Must implement method")
 

@@ -159,6 +159,13 @@ def get_ppm_axis(mz_start: float, mz_end: float, ppm: float):
 
 
 @numba.njit()
+def trim_axis(x: np.ndarray, y: np.ndarray, min_val: float, max_val: float):
+    """Trim axis to prevent accumulation of edges."""
+    mask = np.where((x >= min_val) & (x <= max_val))
+    return x[mask], y[mask]
+
+
+@numba.njit()
 def set_ppm_axis(mz_x: np.ndarray, mz_y: np.ndarray, x: np.ndarray, y: np.ndarray):
     """Set values for axis."""
     mz_idx = np.digitize(x, mz_x, True)
