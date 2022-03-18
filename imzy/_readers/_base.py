@@ -190,7 +190,7 @@ class BaseReader:
             ppm=ppm,
             tol=tol,
         )
-        zarr_array_path = zarr_path / ds.path
+        zarr_array_path = str(zarr_path / ds.path)
         extract_centroids_zarr(
             input_dir=self.path,
             zarr_path=zarr_array_path,

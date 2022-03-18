@@ -78,7 +78,7 @@ def extract_centroids_zarr(
 
     reader = get_reader(input_dir)
     synchronizer = zarr.ProcessSynchronizer(sync_path) if sync_path is not None else None
-    ds = zarr.open(zarr_path, mode="a", synchronizer=synchronizer)
+    ds = zarr.open(str(zarr_path), mode="a", synchronizer=synchronizer)
     chunk_size = ds.chunks[0]
 
     # profile-mode data is easier to handle so we can create mask once and then use the same mask for every pixel
@@ -88,7 +88,7 @@ def extract_centroids_zarr(
         extract_indices = find_between_batch(x, mzs_min, mzs_max)
 
     chunked_indices = list(chunks(indices, chunk_size))
-    for indices in tqdm(chunked_indices, disable=silent):
+    for indices in tqdm(chunked_indices, disable=silent, desc="Extracting image chunks..."):
         # to reduce the number of writes to disk, we accumulate data using temporary array
         temp = np.zeros((len(indices), len(mzs_min)), dtype=np.float32)
         for i, index in enumerate(indices):
@@ -101,7 +101,8 @@ def extract_centroids_zarr(
 
 
 def rechunk_zarr_array(
-    input_dir: PathLike, zarr_path: PathLike, target_path: PathLike, chunk_size: ty.Optional[ty.Tuple[int, int]] = None
+    input_dir: PathLike, zarr_path: PathLike, target_path: PathLike, chunk_size: ty.Optional[ty.Tuple[int, int]] = None,
+    silent: bool = False,
 ):
     """Re-chunk zarr array to more optional format.
 
@@ -130,8 +131,11 @@ def rechunk_zarr_array(
         temp_store=temp_path,
         max_mem="512MB",
     )
-    with ProgressBar():
+    if silent:
         rechunk_plan.execute()
+    else:
+        with ProgressBar():
+            rechunk_plan.execute()
 
     # clean-up old array
     _safe_rmtree(temp_path)  # remove the intermediate array
