@@ -9,8 +9,12 @@ from scipy.interpolate import interp1d
 from .types import ArrayLike
 
 
-def chunks(item_list, n_items: int):
+def chunks(item_list, n_items: int = 0, n_tasks: int = 0):
     """Yield successive n-sized chunks from `item_list`."""
+    if n_items == 0 and n_tasks == 0:
+        raise ValueError("You must specified either 'n_items' or 'n_tasks'.")
+    if n_tasks:
+        n_items = len(item_list) // n_tasks
     for i in range(0, len(item_list), n_items):
         yield item_list[i : i + n_items]
 
@@ -131,6 +135,12 @@ def interpolate_ppm(new_mz: np.ndarray, mz_array: np.ndarray, intensity_array: n
 def find_between(data: np.ndarray, min_value: float, max_value: float):
     """Find indices between windows."""
     return np.where(np.logical_and(data >= min_value, data <= max_value))[0]
+
+
+@numba.njit(cache=True, fastmath=True)
+def find_between_tol(data: np.ndarray, value: float, tol: float):
+    """Find indices between window and ppm."""
+    return find_between(data, value - tol, value + tol)
 
 
 @numba.njit(cache=True, fastmath=True)

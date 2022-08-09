@@ -3,6 +3,7 @@ import typing as ty
 import numpy as np
 from contextlib import contextmanager
 import h5py
+from imzy.utilities import find_nearest_index
 
 from ..types import PathLike
 from ._base import BaseCentroids
@@ -11,19 +12,102 @@ from ._base import BaseCentroids
 class H5CentroidsStore(BaseCentroids):
     """HDF5-centroids."""
 
+    # Private attributes
     PEAKS_KEY = "Array"
+    PEAKS_ARRAY_KEY = "Array/array"
 
-    def __init__(self, path: PathLike, mode: str = "a"):
+    # Cache attributes
+    _chunk_info = None
+    _xs = None
+    _proxy = None
+    _is_chunked = None
+
+    def __init__(
+        self,
+        path: PathLike,
+        xyz_coordinates: ty.Optional[np.ndarray] = None,
+        pixel_index: ty.Optional[np.ndarray] = None,
+        image_shape: ty.Optional[ty.Tuple[int, int]] = None,
+        mode: str = "a",
+    ):
+        super(H5CentroidsStore, self).__init__(xyz_coordinates, pixel_index, image_shape)
         self.path = path
         self.mode = mode
 
     @property
     def is_chunked(self) -> bool:
-        return True
+        if self._is_chunked is None:
+            with self.open() as h5:
+                self._is_chunked = h5[self.PEAKS_KEY].attrs.get("is_chunked")
+        return self._is_chunked
+
+    @property
+    def xs(self):
+        """Get xs."""
+        if self._xs is None:
+            with self.open() as h5:
+                self._xs = h5[self.PEAKS_KEY]["mzs"][:]
+        return self._xs
 
     @property
     def chunk_info(self) -> ty.Optional[ty.Dict[int, np.ndarray]]:
-        return
+        """Returns chunked data."""
+        from natsort import natsorted
+
+        if not self.is_chunked:
+            return None
+
+        if self._chunk_info is None:
+            chunk_info = {}
+            start, end = 0, 0
+            with self.open("r") as h5:
+                for key in natsorted(h5[self.PEAKS_KEY].keys()):
+                    try:
+                        key_int = int(key)
+                    except ValueError:
+                        continue
+                    end += len(h5[f"{self.PEAKS_KEY}/{key}"])
+                    chunk_info[key_int] = np.arange(start, end)
+                    start = end
+            self._chunk_info = chunk_info
+        return self._chunk_info
+
+    @contextmanager
+    def lazy_peaks(self):
+        """Get reference to the peak's data without actually loading it into memory"""
+        if self.is_chunked:
+            if self._proxy is None:
+                self._proxy = LazyPeaksProxy(self)
+            yield self._proxy
+        else:
+            with self.open() as h5:
+                group = h5[self.PEAKS_KEY]
+                yield group["array"]
+
+    def get_ion(self, value: ty.Union[int, float]) -> np.ndarray:
+        """Retrieve single ion."""
+        if isinstance(value, float):
+            value = find_nearest_index(self.xs, value)
+        with self.lazy_peaks() as peaks:
+            return peaks[:, value]
+
+    def get_ions(self, indices: np.ndarray):
+        """Retrieve multiple ions."""
+        indices = np.asarray(indices)
+        with self.lazy_peaks() as peaks:
+            return peaks[:, indices]
+
+    def update(self, array: np.ndarray, framelist: np.ndarray, chunk_id: int = None):
+        """Update array."""
+        if self.is_chunked:
+            # TODO: check size of the array against the size of the chunk
+            with self.open() as h5:
+                h5[f"{self.PEAKS_KEY}/{str(chunk_id)}"][:] = array
+                h5.flush()
+        else:
+            with self.open() as h5:
+                h5[self.PEAKS_ARRAY_KEY][framelist] = array
+                h5.flush()
 
     @contextmanager
     def open(self, mode: str = None):
@@ -38,6 +122,65 @@ class H5CentroidsStore(BaseCentroids):
             yield f_ptr
         finally:
             f_ptr.close()
+
+    def flush(self):
+        """Flush data to disk."""
+        with self.open() as h5:
+            h5.flush()
+
+    @staticmethod
+    def _get_group(hdf, group_name: str, flush: bool = True):
+        try:
+            group = hdf[group_name]
+        except KeyError:
+            group = hdf.create_group(group_name)
+            if flush:
+                hdf.flush()
+        return group
+
+    @staticmethod
+    def _add_data_to_group(
+        group_obj,
+        dataset_name,
+        data,
+        dtype,
+        chunks=None,
+        maxshape=None,
+        compression=None,
+        compression_opts=None,
+        shape=None,
+    ):
+        """Add data to group"""
+        replaced_dataset = False
+
+        if dtype is None:
+            if hasattr(data, "dtype"):
+                dtype = data.dtype
+        if shape is None:
+            if hasattr(data, "shape"):
+                shape = data.shape
+
+        if dataset_name in list(group_obj.keys()):
+            if group_obj[dataset_name].dtype == dtype:
+                try:
+                    group_obj[dataset_name][:] = data
+                    replaced_dataset = True
+                except TypeError:
+                    del group_obj[dataset_name]
+            else:
+                del group_obj[dataset_name]
+
+        if not replaced_dataset:
+            group_obj.create_dataset(
+                dataset_name,
+                data=data,
+                dtype=dtype,
+                compression=compression,
+                chunks=chunks,
+                maxshape=maxshape,
+                compression_opts=compression_opts,
+                shape=shape,
+            )
 
 
 class LazyPeaksProxy:

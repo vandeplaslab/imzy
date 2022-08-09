@@ -9,7 +9,7 @@ from ..types import PathLike
 from ..utilities import (
     accumulate_peaks_centroid,
     accumulate_peaks_profile,
-    find_between,
+    find_between_tol,
     find_between_batch,
     find_between_ppm,
     get_mzs_for_tol,
@@ -124,7 +124,7 @@ class BaseReader:
             raise ValueError("Please specify `tol` or `ppm`.")
         elif tol is not None and ppm is not None:
             raise ValueError("Please only specify `tol` or `ppm`.")
-        func = find_between if tol else find_between_ppm
+        func = find_between_tol if tol else find_between_ppm
         val = tol if tol else ppm
         res = np.zeros(self.n_pixels, dtype=np.float32)
         if self.is_centroid:
@@ -217,11 +217,11 @@ class BaseReader:
         tol: float = None,
         ppm: float = None,
         as_flat: bool = True,
-        chunk_size: ty.Optional[ty.Tuple[int, int]] = None,
+        max_mem: float = 512,  # mb
         silent: bool = False,
-    ):
+    ) -> Path:
         """Export many ion images for specified m/z values (+ tolerance) to a HDF5 store."""
-        from .._extract import check_hdf5, create_centroids_hdf5, extract_centroids_hdf5
+        from .._extract import check_hdf5, create_centroids_hdf5, extract_centroids_hdf5, get_chunk_info
 
         if not as_flat:
             raise ValueError("Only flat images are supported at the moment.")
@@ -232,7 +232,12 @@ class BaseReader:
             raise ValueError("Expect at least 1 mass to extract.")
         mzs_min, mzs_max = get_mzs_for_tol(mzs, tol, ppm)
 
+        chunk_info = get_chunk_info(self.n_pixels, len(mzs), max_mem)
+
         hdf_path = Path(hdf_path)
+        if not hdf_path.suffix == ".h5":
+            hdf_path = hdf_path.with_suffix(".h5")
+
         # prepare output directory
         hdf_path = create_centroids_hdf5(
             self.path,
@@ -243,6 +248,7 @@ class BaseReader:
             mzs_max=mzs_max,
             ppm=ppm,
             tol=tol,
+            chunk_info=chunk_info,
         )
         extract_centroids_hdf5(
             input_dir=self.path,
@@ -252,6 +258,7 @@ class BaseReader:
             indices=self.pixels,
             silent=silent,
         )
+        return hdf_path
 
     def reshape(self, array: np.ndarray, fill_value: float = 0) -> np.ndarray:
         """Reshape vector into an image."""

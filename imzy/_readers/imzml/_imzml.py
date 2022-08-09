@@ -152,7 +152,7 @@ class IMZMLReader(BaseReader):
             raise ValueError("Wrong size and shape of the array.")
         n = array.shape[1]
         dtype = np.float32 if np.isnan(fill_value) else array.dtype
-        im = np.full((n, self.metadata.PX_MAX_X, self.metadata.PX_MAX_Y), fill_value=fill_value, dtype=dtype)
+        im = np.full((n, self.metadata.PX_MAX_Y, self.metadata.PX_MAX_X), fill_value=fill_value, dtype=dtype)
         for i in range(n):
             im[i, self.y_coordinates - 1, self.x_coordinates - 1] = array[:, i]
         return im

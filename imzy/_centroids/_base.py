@@ -3,7 +3,13 @@ import typing as ty
 
 import numpy as np
 
-from ..utilities import find_nearest_index_array
+from ..utilities import (
+    find_nearest_index_array,
+    reshape_array,
+    reshape_array_batch,
+    reshape_array_batch_from_coordinates,
+    reshape_array_from_coordinates,
+)
 
 
 class BaseCentroids:
@@ -12,10 +18,29 @@ class BaseCentroids:
     xs = None
     peaks = None
 
+    def __init__(
+        self,
+        xyz_coordinates: ty.Optional[np.ndarray] = None,
+        pixel_index: ty.Optional[np.ndarray] = None,
+        image_shape: ty.Optional[ty.Tuple[int, int]] = None,
+    ):
+        self.xyz_coordinates = np.asarray(xyz_coordinates) if xyz_coordinates is not None else None
+        self.pixel_index = pixel_index
+        self.image_shape = image_shape
+        self._reshape_by_coordinates = self.xyz_coordinates is not None
+        # update image shape
+        if self.xyz_coordinates is not None and self.image_shape is None:
+            self.image_shape = np.asarray(
+                (
+                    self.xyz_coordinates[:, 1].max(),  # y-dim first
+                    self.xyz_coordinates[:, 0].max(),  # x-dim second
+                )
+            )
+
     def __getitem__(self, item):
         """Get ion image."""
         # label or index provided
-        if isinstance(item, (int, str)):
+        if isinstance(item, (int, np.int, np.int32, np.int64)):
             return self.get_ion_image(item)
         # iterable of label or indices provided
         elif isinstance(item, ty.Iterable):
@@ -31,11 +56,16 @@ class BaseCentroids:
 
     def _reshape_single(self, array, fill_value=np.nan):
         """Reshape single image."""
-        raise NotImplementedError("Must implement method")
+        if self._reshape_by_coordinates:
+            return reshape_array_from_coordinates(array, self.image_shape, self.xyz_coordinates, fill_value=fill_value)
+        return reshape_array(array, self.image_shape, self.pixel_index, fill_value=fill_value)
 
     def _reshape_multiple(self, array, fill_value=np.nan):
-        """Reshape multiple images."""
-        raise NotImplementedError("Must implement method")
+        if self._reshape_by_coordinates:
+            return reshape_array_batch_from_coordinates(
+                array, self.image_shape, self.xyz_coordinates, fill_value=fill_value
+            )
+        return reshape_array_batch(array, self.image_shape, self.pixel_index, fill_value=fill_value)
 
     def get_ion(self, name: ty.Union[int, float]) -> np.ndarray:
         """Get ion array"""
