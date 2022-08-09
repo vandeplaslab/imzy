@@ -210,6 +210,49 @@ class BaseReader:
         rechunk_zarr_array(self.path, zarr_array_path, target_path, chunk_size=chunk_size)
         return zarr_path
 
+    def to_hdf5(
+        self,
+        hdf_path: PathLike,
+        mzs: ty.Iterable[float],
+        tol: float = None,
+        ppm: float = None,
+        as_flat: bool = True,
+        chunk_size: ty.Optional[ty.Tuple[int, int]] = None,
+        silent: bool = False,
+    ):
+        """Export many ion images for specified m/z values (+ tolerance) to a HDF5 store."""
+        from .._extract import check_hdf5, create_centroids_hdf5, extract_centroids_hdf5
+
+        if not as_flat:
+            raise ValueError("Only flat images are supported at the moment.")
+        check_hdf5()
+
+        mzs = np.asarray(mzs)
+        if mzs.size == 0:
+            raise ValueError("Expect at least 1 mass to extract.")
+        mzs_min, mzs_max = get_mzs_for_tol(mzs, tol, ppm)
+
+        hdf_path = Path(hdf_path)
+        # prepare output directory
+        hdf_path = create_centroids_hdf5(
+            self.path,
+            hdf_path,
+            len(mzs),
+            mzs=mzs,
+            mzs_min=mzs_min,
+            mzs_max=mzs_max,
+            ppm=ppm,
+            tol=tol,
+        )
+        extract_centroids_hdf5(
+            input_dir=self.path,
+            hdf_path=hdf_path,
+            mzs_min=mzs_min,
+            mzs_max=mzs_max,
+            indices=self.pixels,
+            silent=silent,
+        )
+
     def reshape(self, array: np.ndarray, fill_value: float = 0) -> np.ndarray:
         """Reshape vector into an image."""
         raise NotImplementedError("Must implement method")

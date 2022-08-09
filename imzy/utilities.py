@@ -6,6 +6,9 @@ import numpy as np
 from scipy.interpolate import interp1d
 
 
+from .types import ArrayLike
+
+
 def chunks(item_list, n_items: int):
     """Yield successive n-sized chunks from `item_list`."""
     for i in range(0, len(item_list), n_items):
@@ -42,6 +45,45 @@ def find_nearest_value(data: np.ndarray, value: ty.Union[int, float, np.ndarray,
 def find_nearest_index_sorted(array, value):
     """Much quicker implementation of `find_nearest_index` if the data is sorted"""
     return np.searchsorted(array, value, side="left")
+
+
+@numba.njit()
+def find_nearest_index_array(data: ArrayLike, value: ty.Union[np.ndarray, ty.Iterable]) -> np.ndarray:
+    """Find nearest index of asked value
+
+    Parameters
+    ----------
+    data : ArrayLike
+        input array (e.g. m/z values)
+    value : Union[int, float, np.ndarray]
+        asked value
+
+    Returns
+    -------
+    index :
+        index value
+    """
+    data = np.asarray(data)
+    return np.asarray([np.argmin(np.abs(data - _value)) for _value in value])
+
+
+@numba.njit()
+def find_nearest_index_single(data: ArrayLike, value: ty.Union[int, float]):
+    """Find nearest index of asked value
+
+    Parameters
+    ----------
+    data : ArrayLike
+        input array (e.g. m/z values)
+    value : Union[int, float, np.ndarray]
+        asked value
+
+    Returns
+    -------
+    index :
+        index value
+    """
+    return np.argmin(np.abs(np.asarray(data) - value))
 
 
 @numba.njit(fastmath=True, cache=True)
@@ -172,3 +214,72 @@ def set_ppm_axis(mz_x: np.ndarray, mz_y: np.ndarray, x: np.ndarray, y: np.ndarra
     for i, idx in enumerate(mz_idx):
         mz_y[idx] += y[i]
     return mz_y
+
+
+def reshape_array(array, image_shape, pixel_index, fill_value=0):
+    """
+    Reshape 1D data to 2D heatmap
+
+    Parameters
+    ----------
+    array: np.array / list
+        1D array of values to be reshaped
+    image_shape: tuple
+        final shape of the image
+    pixel_index: np.array
+        array containing positions where pixels should be placed, considering missing values -
+        e.g. not acquired pixels
+    fill_value : float, optional
+        if value is provided, it will be used to fill-in the values
+
+    Returns
+    -------
+    im_array: np.array
+        reshaped heatmap of shape `image_shape`
+    """
+    if isinstance(array, np.matrix):
+        array = np.asarray(array).flatten()
+    array = np.asarray(array)
+    dtype = np.float32 if isinstance(fill_value, float) else array.dtype
+
+    image_n_pixels = np.prod(image_shape)
+    im_array = np.full(image_n_pixels, dtype=dtype, fill_value=fill_value)
+    im_array[pixel_index] = array
+    im_array = np.reshape(im_array, image_shape)
+    return im_array
+
+
+def reshape_array_from_coordinates(array, image_shape, coordinates, fill_value=0):
+    """Reshape array based on xy coordinates."""
+    dtype = np.float32 if np.isnan(fill_value) else array.dtype
+    im = np.full(image_shape, fill_value=fill_value, dtype=dtype)
+    im[coordinates[:, 1] - 1, coordinates[:, 0] - 1] = array
+    return im
+
+
+def reshape_array_batch(array, image_shape, pixel_index, fill_value=0):
+    """Reshape many images into a data cube."""
+    array = np.asarray(array)
+    if array.ndim == 1:
+        return reshape_array(array, image_shape, pixel_index, fill_value)
+    count = array.shape[1]
+    dtype = np.float32 if isinstance(fill_value, float) else array.dtype
+
+    im_array = np.full((count, np.prod(image_shape)), dtype=dtype, fill_value=fill_value)
+    for i in range(count):
+        im_array[i, pixel_index] = array[:, i]
+    # reshape data
+    im_array = np.reshape(im_array, (count, *image_shape))
+    return im_array
+
+
+def reshape_array_batch_from_coordinates(array, image_shape, coordinates, fill_value=0):
+    """Batch reshape image."""
+    if array.ndim != 2:
+        raise ValueError("Expected 2-D array.")
+    n = array.shape[1]
+    dtype = np.float32 if np.isnan(fill_value) else array.dtype
+    im = np.full((n, *image_shape), fill_value=fill_value, dtype=dtype)
+    for i in range(n):
+        im[i, coordinates[:, 1] - 1, coordinates[:, 0] - 1] = array[:, i]
+    return im

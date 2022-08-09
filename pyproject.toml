@@ -6,6 +6,8 @@ requires = [
 ]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools_scm]
+write_to = "src/imzy/_version.py"
 
 [tool.black]
 # https://github.com/psf/black
@@ -28,6 +30,21 @@ exclude = '''
     | venv
 )/
 '''
+
+[tool.check-manifest]
+ignore = [
+  ".cirrus.yml",
+  ".pre-commit-config.yaml",
+  "asv.conf.json",
+  "codecov.yml",
+  "Makefile",
+  "imzy/src/_version.py",  # added during build by setuptools_scm
+  "tox.ini",
+  "*.pyi",  # added by make typestubs
+  "binder/*",
+  ".env_sample",
+  ".devcontainer/*",
+]
 
 [tool.isort]
 # https://github.com/timothycrosley/isort/
