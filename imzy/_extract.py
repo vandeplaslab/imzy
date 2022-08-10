@@ -264,7 +264,8 @@ def extract_centroids_hdf5(
         # to reduce the number of writes to disk, we accumulate data using temporary array
         temp = np.zeros((len(indices), len(mzs_min)), dtype=np.float32)
         for i, index in enumerate(
-            tqdm(indices, disable=silent, desc=f"Extracting pixels (chunk={chunk_id+1}/{n_chunks})", miniters=250)
+            tqdm(indices, disable=silent, desc=f"Extracting pixels (chunk={chunk_id+1}/{n_chunks})", miniters=25,
+                 mininterval=0.2)
         ):
             x, y = reader[index]
             if reader.is_centroid:
