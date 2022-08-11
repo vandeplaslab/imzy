@@ -7,3 +7,5 @@ try:
     from ._zarr_store import ZarrCentroidsStore
 except ZarrCentroidsStore:
     ZarrCentroidsStore = None
+
+from ._memory_store import InMemoryStore  # noqa

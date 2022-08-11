@@ -21,7 +21,7 @@ class ZarrCentroidsStore(BaseCentroids):
         pixel_index: ty.Optional[np.ndarray] = None,
         image_shape: ty.Optional[ty.Tuple[int, int]] = None,
     ):
-        super(ZarrCentroidsStore, self).__init__(xyz_coordinates, pixel_index, image_shape)
+        super().__init__(xyz_coordinates, pixel_index, image_shape)
         self.path = Path(path)
         self.z_store = zarr.open(str(path))
         try:
@@ -42,8 +42,9 @@ class ZarrCentroidsStore(BaseCentroids):
             value = find_nearest_index_single(self.xs, value)
         return self.peaks[:, value].compute()
 
-    def get_ions(self, indices: np.ndarray, filtered: bool = False):
+    def get_ions(self, mzs: np.ndarray, filtered: bool = False):
         """Retrieve ions."""
+        _, indices = self.get_ion_indices(mzs)
         if filtered:
             if not self.filtered:
                 raise ValueError("Please cache filtered images.")

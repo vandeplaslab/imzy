@@ -118,7 +118,7 @@ class BaseReader:
             self._tic = res
         return self._tic
 
-    def get_ion_image(self, mz: float, tol: float = None, ppm: float = None, silent: bool = False) -> np.ndarray:
+    def get_ion_image(self, mz: float, tol: float = None, ppm: float = None, fill_value: float = np.nan, silent: bool = False) -> np.ndarray:
         """Return ion image for specified m/z with tolerance or ppm."""
         if tol is None and ppm is None or tol == 0 and ppm == 0:
             raise ValueError("Please specify `tol` or `ppm`.")
@@ -126,7 +126,7 @@ class BaseReader:
             raise ValueError("Please only specify `tol` or `ppm`.")
         func = find_between_tol if tol else find_between_ppm
         val = tol if tol else ppm
-        res = np.zeros(self.n_pixels, dtype=np.float32)
+        res = np.full(self.n_pixels, dtype=np.float32, fill_value=fill_value)
         if self.is_centroid:
             for i, (x, y) in enumerate(self.iter_spectra(silent)):
                 mask = func(x, mz, val)
@@ -139,12 +139,12 @@ class BaseReader:
         return self.reshape(res)
 
     def get_ion_images(
-        self, mzs: ty.Iterable[float], tol: float = None, ppm: float = None, silent: bool = False
+        self, mzs: ty.Iterable[float], tol: float = None, ppm: float = None, fill_value: float = np.nan, silent: bool = False
     ) -> np.ndarray:
         """Return many ion images for specified m/z values."""
         mzs = np.asarray(mzs)
         mzs_min, mzs_max = get_mzs_for_tol(mzs, tol, ppm)
-        res = np.zeros((self.n_pixels, len(mzs)), dtype=np.float32)
+        res = np.full((self.n_pixels, len(mzs)), dtype=np.float32, fill_value=fill_value)
 
         if self.is_centroid:
             for i, (x, y) in enumerate(self.iter_spectra(silent)):
@@ -233,10 +233,17 @@ class BaseReader:
         mzs_min, mzs_max = get_mzs_for_tol(mzs, tol, ppm)
 
         chunk_info = get_chunk_info(self.n_pixels, len(mzs), max_mem)
-
         hdf_path = Path(hdf_path)
         if not hdf_path.suffix == ".h5":
             hdf_path = hdf_path.with_suffix(".h5")
+
+        if hdf_path.exists():
+            from .._centroids import H5CentroidsStore
+
+            store = H5CentroidsStore(hdf_path)
+            if store.n_peaks == len(mzs):
+                if np.allclose(store.xs, mzs, rtol=1e-3):
+                    return hdf_path
 
         # prepare output directory
         hdf_path = create_centroids_hdf5(

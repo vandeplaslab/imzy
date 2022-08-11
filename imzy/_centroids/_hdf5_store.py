@@ -30,7 +30,7 @@ class H5CentroidsStore(BaseCentroids):
         image_shape: ty.Optional[ty.Tuple[int, int]] = None,
         mode: str = "a",
     ):
-        super(H5CentroidsStore, self).__init__(xyz_coordinates, pixel_index, image_shape)
+        super().__init__(xyz_coordinates, pixel_index, image_shape)
         self.path = path
         self.mode = mode
 
@@ -91,9 +91,9 @@ class H5CentroidsStore(BaseCentroids):
         with self.lazy_peaks() as peaks:
             return peaks[:, value]
 
-    def get_ions(self, indices: np.ndarray):
+    def get_ions(self, mzs: np.ndarray):
         """Retrieve multiple ions."""
-        indices = np.asarray(indices)
+        _, indices = self.get_ion_indices(mzs)
         with self.lazy_peaks() as peaks:
             return peaks[:, indices]
 
