@@ -118,7 +118,9 @@ class BaseReader:
             self._tic = res
         return self._tic
 
-    def get_ion_image(self, mz: float, tol: float = None, ppm: float = None, fill_value: float = np.nan, silent: bool = False) -> np.ndarray:
+    def get_ion_image(
+        self, mz: float, tol: float = None, ppm: float = None, fill_value: float = np.nan, silent: bool = False
+    ) -> np.ndarray:
         """Return ion image for specified m/z with tolerance or ppm."""
         if tol is None and ppm is None or tol == 0 and ppm == 0:
             raise ValueError("Please specify `tol` or `ppm`.")
@@ -139,7 +141,12 @@ class BaseReader:
         return self.reshape(res)
 
     def get_ion_images(
-        self, mzs: ty.Iterable[float], tol: float = None, ppm: float = None, fill_value: float = np.nan, silent: bool = False
+        self,
+        mzs: ty.Iterable[float],
+        tol: float = None,
+        ppm: float = None,
+        fill_value: float = np.nan,
+        silent: bool = False,
     ) -> np.ndarray:
         """Return many ion images for specified m/z values."""
         mzs = np.asarray(mzs)

@@ -22,10 +22,10 @@ class InMemoryStore(BaseCentroids):
         super().__init__(xyz_coordinates, pixel_index, image_shape)
         self.reader = reader
 
-    def get_ion(self, mz: float, fill_value=np.nan, ppm: float = 3.) -> np.ndarray:
+    def get_ion(self, mz: float, fill_value=np.nan, ppm: float = 3.0) -> np.ndarray:
         """Get ion."""
         return self.reader.get_ion_image(mz, ppm=ppm, fill_value=fill_value)
 
-    def get_ions(self, mzs: ty.Iterable[float], fill_value=np.nan, ppm: float = 3.):
+    def get_ions(self, mzs: ty.Iterable[float], fill_value=np.nan, ppm: float = 3.0):
         """Get ion images."""
         return self.reader.get_ion_images(mzs, ppm=ppm, fill_value=fill_value)
