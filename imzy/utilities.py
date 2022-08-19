@@ -167,7 +167,7 @@ def find_between_batch(array: np.ndarray, min_value: np.ndarray, max_value: np.n
 
     res = []
     for i in range(len(min_value)):
-        _array = array[min_indices[i]:max_indices[i]]
+        _array = array[min_indices[i] : max_indices[i]]
         res.append(min_indices[i] + find_between(_array, min_value[i], max_value[i]))
     return res
 

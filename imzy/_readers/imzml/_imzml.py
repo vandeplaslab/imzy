@@ -170,7 +170,9 @@ class IMZMLReader(BaseReader):
     def _get_summed_spectrum_profile(self, indices: ty.Iterable[int], silent: bool = False):
         mz_x, mz_y = self[indices[0]]
         mz_y = mz_y.copy().astype(np.float64)
-        for _, y in tqdm(self._read_spectra(indices[1::]), total=len(indices) - 1, disable=silent, desc="Summing spectra..."):
+        for _, y in tqdm(
+            self._read_spectra(indices[1::]), total=len(indices) - 1, disable=silent, desc="Summing spectra..."
+        ):
             mz_y += y
         return mz_x, mz_y
 

@@ -284,4 +284,6 @@ class BaseReader:
 
     def iter_spectra(self, silent: bool = False):
         """Yield spectra."""
-        yield from tqdm(self._read_spectra(), total=self.n_pixels, disable=silent, miniters=500, desc="Iterating spectra...")
+        yield from tqdm(
+            self._read_spectra(), total=self.n_pixels, disable=silent, miniters=500, desc="Iterating spectra..."
+        )
