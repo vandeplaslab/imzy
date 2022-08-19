@@ -151,7 +151,7 @@ def find_between_ppm(data: np.ndarray, value: float, ppm: float):
 
 
 @numba.njit(cache=True, fastmath=True)
-def find_between_batch(array: np.ndarray, min_value: np.ndarray, max_value: np.ndarray):
+def find_between_batch_old(array: np.ndarray, min_value: np.ndarray, max_value: np.ndarray):
     """Find indices between specified boundaries for many items."""
     res = []
     for i in range(len(min_value)):
@@ -159,7 +159,20 @@ def find_between_batch(array: np.ndarray, min_value: np.ndarray, max_value: np.n
     return res
 
 
-@numba.njit()
+@numba.njit(cache=True, fastmath=True)
+def find_between_batch(array: np.ndarray, min_value: np.ndarray, max_value: np.ndarray):
+    """Find indices between specified boundaries for many items."""
+    min_indices = np.searchsorted(array, min_value, side="left")
+    max_indices = np.searchsorted(array, max_value, side="right")
+
+    res = []
+    for i in range(len(min_value)):
+        _array = array[min_indices[i]:max_indices[i]]
+        res.append(min_indices[i] + find_between(_array, min_value[i], max_value[i]))
+    return res
+
+
+@numba.njit(cache=True)
 def accumulate_peaks_centroid(peaks_min: np.ndarray, peaks_max: np.ndarray, x: np.ndarray, y: np.ndarray):
     """Sum intensities for specified number of peaks where each spectra and in centroid-mode."""
     indices = find_between_batch(x, peaks_min, peaks_max)

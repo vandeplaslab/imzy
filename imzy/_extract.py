@@ -4,7 +4,6 @@ from pathlib import Path
 
 import hdf5plugin
 import numpy as np
-from annotine.utils.utilities import optimize_chunks_along_axis
 from tqdm.auto import tqdm
 
 from ._readers import get_reader
