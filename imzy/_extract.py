@@ -4,7 +4,6 @@ from pathlib import Path
 
 import hdf5plugin
 import numpy as np
-from annotine.utils.utilities import optimize_chunks_along_axis
 from tqdm.auto import tqdm
 
 from ._readers import get_reader
@@ -259,6 +258,7 @@ def extract_centroids_hdf5(
     else:
         chunked_indices = [indices]
 
+    n_peaks = len(mzs_min)
     n_chunks = len(chunked_indices)
     for chunk_id, indices in enumerate(chunked_indices):
         # to reduce the number of writes to disk, we accumulate data using temporary array
@@ -267,7 +267,7 @@ def extract_centroids_hdf5(
             tqdm(
                 indices,
                 disable=silent,
-                desc=f"Extracting pixels (chunk={chunk_id+1}/{n_chunks})",
+                desc=f"Extracting {n_peaks} peaks (chunk={chunk_id+1}/{n_chunks})",
                 miniters=25,
                 mininterval=0.2,
             )
