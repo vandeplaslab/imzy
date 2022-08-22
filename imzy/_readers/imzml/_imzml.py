@@ -135,6 +135,11 @@ class IMZMLReader(BaseReader):
         x, y, _ = self.xyz_coordinates[index]
         return x * self.metadata.PX_SIZE_X, y * self.metadata.PX_SIZE_Y
 
+    @property
+    def image_shape(self) -> ty.Tuple[int, int]:
+        """Return shape of the image."""
+        return self.metadata.PX_MAX_Y, self.metadata.PX_MAX_X
+
     def reshape(self, array: np.ndarray, fill_value: float = 0) -> np.ndarray:
         """Reshape vector of intensities."""
         if len(array) != self.n_pixels:
