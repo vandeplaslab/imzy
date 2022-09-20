@@ -21,6 +21,7 @@ class H5CentroidsStore(BaseCentroids):
     _xs = None
     _proxy = None
     _is_chunked = None
+    _low_mem: bool = True
 
     def __init__(
         self,
@@ -33,6 +34,16 @@ class H5CentroidsStore(BaseCentroids):
         super().__init__(xyz_coordinates, pixel_index, image_shape)
         self.path = path
         self.mode = mode
+
+    @property
+    def is_low_mem(self):
+        return self._low_mem
+
+    @is_low_mem.setter
+    def is_low_mem(self, value: bool):
+        self._low_mem = value
+        if self._proxy:
+            self._proxy.low_mem = value
 
     @property
     def is_chunked(self) -> bool:
@@ -186,16 +197,25 @@ class H5CentroidsStore(BaseCentroids):
 class LazyPeaksProxy:
     """Proxy class to enable similar interface to lazy-peaks."""
 
-    def __init__(self, obj: H5CentroidsStore):
+    _peaks = None
+
+    def __init__(self, obj: H5CentroidsStore, low_mem: bool = True):
         self.obj = obj
+        self.low_mem = low_mem
 
     def __getitem__(self, item):
         res = []
-        for array in self.chunk_iter():
+        if self.low_mem:
+            for array in self.chunk_iter():
+                try:
+                    res.append(array[item[0], item[1]])
+                except TypeError:
+                    res.append(np.column_stack([array[item[0], i] for i in item[1]]))
+        else:
             try:
-                res.append(array[item[0], item[1]])
+                res.append(self.peaks()[item[0], item[1]])
             except TypeError:
-                res.append(np.column_stack([array[item[0], i] for i in item[1]]))
+                res.append(np.column_stack([self.peaks()[item[0], i] for i in item[1]]))
         return np.concatenate(res)
 
     @property
@@ -217,3 +237,14 @@ class LazyPeaksProxy:
         with self.obj.open("r") as h5:
             for chunk_id in chunk_info:
                 yield h5[f"{self.obj.PEAKS_KEY}/{str(chunk_id)}"]
+
+    def peaks(self):
+        """Dense version which is very inefficient."""
+        if self._peaks is None:
+            temp = np.zeros(self.shape, dtype=self.dtype)
+            start = 0
+            for chunk in self.chunk_iter():
+                temp[start : start + chunk.shape[0], :] = chunk[:]
+                start += chunk.shape[0]
+            self._peaks = temp
+        return self._peaks
