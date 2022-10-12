@@ -1,8 +1,10 @@
 """Wrapper class for HDF5-based centroids."""
 import typing as ty
-import numpy as np
 from contextlib import contextmanager
+
 import h5py
+import numpy as np
+
 from imzy.utilities import find_nearest_index
 
 from ..types import PathLike

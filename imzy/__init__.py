@@ -3,8 +3,8 @@
 
 import sys
 
+from ._centroids import H5CentroidsStore, InMemoryStore, ZarrCentroidsStore  # noqa: F401
 from ._readers import IMZMLReader, get_reader  # noqa: F401
-from ._centroids import H5CentroidsStore, ZarrCentroidsStore, InMemoryStore  # noqa: F401
 
 if sys.version_info >= (3, 8):
     from importlib import metadata as importlib_metadata

@@ -9,9 +9,9 @@ from ..types import PathLike
 from ..utilities import (
     accumulate_peaks_centroid,
     accumulate_peaks_profile,
-    find_between_tol,
     find_between_batch,
     find_between_ppm,
+    find_between_tol,
     get_mzs_for_tol,
 )
 

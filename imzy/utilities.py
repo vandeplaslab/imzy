@@ -5,7 +5,6 @@ import numba
 import numpy as np
 from scipy.interpolate import interp1d
 
-
 from .types import ArrayLike
 
 

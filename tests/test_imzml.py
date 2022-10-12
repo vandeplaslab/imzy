@@ -58,3 +58,14 @@ def test_to_zarr(path, tmp_path):
     zarr_temp = tmp_path / "output.zarr"
     zarr_path = reader.to_zarr(zarr_temp, mzs, tol=0.5)
     assert zarr_path.exists()
+
+
+@pytest.mark.parametrize("path", get_imzml_data())
+def test_to_h5(path, tmp_path):
+    reader = IMZMLReader(path)
+
+    mzs = [500, 550, 600, 601, 603]
+    h5_temp = tmp_path / "output"  # forgot to include .h5 extension
+    h5_path = reader.to_hdf5(h5_temp, mzs, tol=0.5)
+    assert h5_path.exists()
+    assert h5_temp != h5_path
