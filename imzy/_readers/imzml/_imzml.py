@@ -393,7 +393,7 @@ def fix_offsets(offsets):
         for values in offsets:
             value = values[index]
             if value < 0 <= prev_value:
-                delta += 2 ** 32
+                delta += 2**32
             values[index] = value + delta
             prev_value = value
 
