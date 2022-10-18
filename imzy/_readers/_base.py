@@ -140,15 +140,14 @@ class BaseReader:
                 res[i] = y[mask].sum()
         return self.reshape(res)
 
-    def get_ion_images(
+    def _get_ions(
         self,
         mzs: ty.Iterable[float],
         tol: float = None,
         ppm: float = None,
         fill_value: float = np.nan,
         silent: bool = False,
-    ) -> np.ndarray:
-        """Return many ion images for specified m/z values."""
+    ):
         mzs = np.asarray(mzs)
         mzs_min, mzs_max = get_mzs_for_tol(mzs, tol, ppm)
         res = np.full((self.n_pixels, len(mzs)), dtype=np.float32, fill_value=fill_value)
@@ -161,7 +160,30 @@ class BaseReader:
             indices = find_between_batch(x, mzs_min, mzs_max)
             for i, (_, y) in enumerate(self.iter_spectra(silent)):
                 res[i] = accumulate_peaks_profile(indices, y)
+        return res
+
+    def get_ion_images(
+        self,
+        mzs: ty.Iterable[float],
+        tol: float = None,
+        ppm: float = None,
+        fill_value: float = np.nan,
+        silent: bool = False,
+    ) -> np.ndarray:
+        """Return many ion images for specified m/z values."""
+        res = self._get_ions(mzs, tol, ppm, fill_value, silent)
         return self.reshape_batch(res)
+
+    def to_table(
+        self,
+        mzs: ty.Iterable[float],
+        tol: float = None,
+        ppm: float = None,
+        fill_value: float = np.nan,
+        silent: bool = False,
+    ):
+        """Return many ion images for specified m/z values without reshaping."""
+        return self._get_ions(mzs, tol, ppm, fill_value, silent)
 
     def to_zarr(
         self,
