@@ -38,7 +38,7 @@ ignore = [
   "asv.conf.json",
   "codecov.yml",
   "Makefile",
-  "imzy/src/_version.py",  # added during build by setuptools_scm
+  "imzy/_version.py",  # added during build by setuptools_scm
   "tox.ini",
   "*.pyi",  # added by make typestubs
   "binder/*",

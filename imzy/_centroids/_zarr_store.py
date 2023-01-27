@@ -2,9 +2,13 @@
 import typing as ty
 from pathlib import Path
 
-import dask.array as dsa
 import numpy as np
-import zarr
+
+try:
+    import dask.array as dsa
+    import zarr
+except ImportError:
+    ds, zarr = None, None
 
 from ..types import PathLike
 from ..utilities import find_nearest_index_single
@@ -22,6 +26,8 @@ class ZarrCentroidsStore(BaseCentroids):
         image_shape: ty.Optional[ty.Tuple[int, int]] = None,
     ):
         super().__init__(xyz_coordinates, pixel_index, image_shape)
+        assert dsa is not None and zarr is not None, "dask and zarr are not installed."
+        
         self.path = Path(path)
         self.z_store = zarr.open(str(path))
         try:

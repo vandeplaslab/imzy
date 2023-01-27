@@ -2,8 +2,11 @@
 import typing as ty
 from contextlib import contextmanager
 
-import h5py
 import numpy as np
+try:
+    import h5py
+except ImportError:
+    h5py = None
 
 from imzy.utilities import find_nearest_index
 
@@ -34,6 +37,8 @@ class H5CentroidsStore(BaseCentroids):
         mode: str = "a",
     ):
         super().__init__(xyz_coordinates, pixel_index, image_shape)
+        assert h5py is not None, "h5py is not installed."
+        
         self.path = path
         self.mode = mode
 
