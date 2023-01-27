@@ -8,10 +8,12 @@ global-exclude *.imzML
 global-exclude *.icache
 global-exclude *.md
 exclude dockerfile
+exclude .dockerignore
+exclude .editorconfig
+recursive-exclude .idea *
 recursive-exclude examples *
 recursive-exclude scripts *
 recursive-exclude tools *
-recursive-exclude .idea *
 recursive-exclude assets *
 
 # Top-level config
