@@ -1,9 +1,6 @@
 """Centroids."""
-from ._hdf5_store import H5CentroidsStore, h5py
-if h5py is None:
-    H5CentroidsStore = None
-from ._zarr_store import ZarrCentroidsStore, zarr
-if zarr is None:
-    ZarrCentroidsStore = None
+from ._hdf5_store import H5CentroidsStore  # noqa F401
 
-from ._memory_store import InMemoryStore  # noqa
+from ._zarr_store import ZarrCentroidsStore  # noqa F401
+
+from ._memory_store import InMemoryStore  # noqa F401

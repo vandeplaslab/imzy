@@ -3,6 +3,7 @@ import typing as ty
 from contextlib import contextmanager
 
 import numpy as np
+
 try:
     import h5py
 except ImportError:
@@ -38,7 +39,7 @@ class H5CentroidsStore(BaseCentroids):
     ):
         super().__init__(xyz_coordinates, pixel_index, image_shape)
         assert h5py is not None, "h5py is not installed."
-        
+
         self.path = path
         self.mode = mode
 

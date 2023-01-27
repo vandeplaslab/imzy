@@ -27,7 +27,7 @@ class ZarrCentroidsStore(BaseCentroids):
     ):
         super().__init__(xyz_coordinates, pixel_index, image_shape)
         assert dsa is not None and zarr is not None, "dask and zarr are not installed."
-        
+
         self.path = Path(path)
         self.z_store = zarr.open(str(path))
         try:
