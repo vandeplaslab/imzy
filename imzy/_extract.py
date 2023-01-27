@@ -2,9 +2,13 @@
 import typing as ty
 from pathlib import Path
 
-import hdf5plugin
 import numpy as np
 from tqdm.auto import tqdm
+
+try:
+    import hdf5plugin
+except ImportError:
+    pass
 
 from ._readers import get_reader
 from .types import PathLike

@@ -1,0 +1,24 @@
+# Things to always exclude
+global-exclude .git*
+global-exclude .ipynb_checkpoints
+global-exclude *.py[co]
+global-exclude tests
+global-exclude *.ibd
+global-exclude *.imzML
+global-exclude *.icache
+global-exclude *.md
+exclude dockerfile
+recursive-exclude examples *
+recursive-exclude scripts *
+recursive-exclude tools *
+recursive-exclude .idea *
+recursive-exclude assets *
+
+# Top-level config
+recursive-include imzy *.pyi
+include MANIFEST.in
+include setup.cfg
+
+# Always include
+global-include *.pyx
+global-include *.c
