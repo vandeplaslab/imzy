@@ -94,16 +94,22 @@ jobs:
     name: ubuntu-latest 3.8 pip install
     runs-on: ubuntu-latest
     steps:
-      - name: Set up Python 3.8
-        uses: actions/setup-python@v4.1.0
+      - uses: actions/checkout@v3
         with:
-          python-version: 3.8
+          path: imzy-from-github
+
+      - name: Set up Python 3.9
+        uses: actions/setup-python@v4
+        with:
+          python-version: 3.9
+          cache: "pip"
+          cache-dependency-path: imzy-from-github/setup.cfg
+
 
       - name: Install this commit
         run: |
-          # pip install this git sha directly from github
           pip install --upgrade pip
-          pip install https://github.com/${{ github.repository }}.git@${{ github.sha }}#egg=imzy[all,testing]
+          pip install ./imzy-from-github[all,testing]
 
       - name: Test
         uses: GabrielBB/xvfb-action@v1
