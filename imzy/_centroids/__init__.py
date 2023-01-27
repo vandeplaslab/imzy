@@ -5,7 +5,7 @@ except ImportError:
     H5CentroidsStore = None
 try:
     from ._zarr_store import ZarrCentroidsStore
-except ZarrCentroidsStore:
+except ImportError:
     ZarrCentroidsStore = None
 
 from ._memory_store import InMemoryStore  # noqa
