@@ -181,7 +181,8 @@ ignore = [
   "tests/**/*",
   "**/*_version.py",
   "Makefile",
-  "tox.ini"
+  "tox.ini",
+  "misc/*.yml"
 ]
 
 # https://python-semantic-release.readthedocs.io/en/latest/configuration.html
