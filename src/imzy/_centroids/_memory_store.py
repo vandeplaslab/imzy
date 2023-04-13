@@ -3,10 +3,10 @@ import typing as ty
 
 import numpy as np
 
-from ._base import BaseCentroids
+from imzy._centroids._base import BaseCentroids
 
 if ty.TYPE_CHECKING:
-    from .._readers import BaseReader
+    from imzy._readers import BaseReader
 
 
 class InMemoryStore(BaseCentroids):

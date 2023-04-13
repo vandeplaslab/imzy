@@ -3,6 +3,9 @@ import typing as ty
 from pathlib import Path
 
 import numpy as np
+from koyo.spectrum import find_between_batch
+from koyo.typing import PathLike
+from koyo.utilities import chunks
 from tqdm.auto import tqdm
 
 try:
@@ -10,9 +13,8 @@ try:
 except ImportError:
     pass
 
-from ._readers import get_reader
-from .types import PathLike
-from .utilities import accumulate_peaks_centroid, accumulate_peaks_profile, chunks, find_between_batch
+from imzy._readers import get_reader
+from imzy.utilities import accumulate_peaks_centroid, accumulate_peaks_profile
 
 
 def check_zarr():
@@ -165,7 +167,7 @@ def get_chunk_info(n_pixels: int, n_peaks: int, max_mem: float = 512) -> ty.Dict
 
     _max_mem = (float(n_pixels) * n_peaks * 4) / (1024**2)  # assume 4 bytes per element
     n_tasks = math.ceil(_max_mem / max_mem) or 1
-    return {i: framelist for (i, framelist) in enumerate(list(chunks(np.arange(n_pixels), n_tasks=n_tasks)))}
+    return dict(enumerate(list(chunks(np.arange(n_pixels), n_tasks=n_tasks))))
 
 
 def create_centroids_hdf5(
@@ -181,8 +183,8 @@ def create_centroids_hdf5(
     chunk_info: ty.Optional[ty.Dict[int, np.ndarray]] = None,
 ):
     """Create group with datasets inside."""
-    from ._centroids import H5CentroidsStore
-    from ._centroids.utilities import optimize_chunks_along_axis
+    from imzy._centroids import H5CentroidsStore
+    from imzy.utilities import optimize_chunks_along_axis
 
     reader = get_reader(input_dir)
     n_pixels = reader.n_pixels
@@ -246,7 +248,7 @@ def extract_centroids_hdf5(
     silent: bool = False,
 ):
     """Extract peaks for particular subset of frames."""
-    from ._centroids import H5CentroidsStore
+    from imzy._centroids import H5CentroidsStore
 
     reader = get_reader(input_dir)
     store = H5CentroidsStore(hdf_path, mode="a")

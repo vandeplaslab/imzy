@@ -2,14 +2,13 @@
 import typing as ty
 
 import numpy as np
-
-from ..utilities import (
-    find_nearest_index_array,
+from koyo.image import (
     reshape_array,
     reshape_array_batch,
     reshape_array_batch_from_coordinates,
     reshape_array_from_coordinates,
 )
+from koyo.utilities import find_nearest_index_array
 
 
 class BaseCentroids:
@@ -68,7 +67,7 @@ class BaseCentroids:
         return reshape_array_batch(array, self.image_shape, self.pixel_index, fill_value=fill_value)
 
     def get_ion(self, name: ty.Union[int, float]) -> np.ndarray:
-        """Get ion array"""
+        """Get ion array."""
         raise NotImplementedError("Must implement method")
 
     def get_ions(self, indices: np.ndarray):
@@ -80,7 +79,7 @@ class BaseCentroids:
         return len(self.xs)
 
     def get_ion_indices(self, xs: np.ndarray) -> ty.Tuple[np.ndarray, np.ndarray]:
-        """Find ions"""
+        """Find ions."""
         # we can calculate this once and then cache it for the future
         indices = find_nearest_index_array(self.xs, xs)
         return self.xs[indices], indices

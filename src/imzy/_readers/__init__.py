@@ -2,11 +2,12 @@
 import typing as ty
 from pathlib import Path
 
-from ..types import PathLike
-from .imzml import IMZMLReader  # noqa: F401
+from koyo.typing import PathLike
+
+from imzy._readers.imzml import IMZMLReader
 
 if ty.TYPE_CHECKING:
-    from ._base import BaseReader
+    from imzy._readers._base import BaseReader
 
 __all__ = ("IMZMLReader", "get_reader")
 

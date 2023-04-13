@@ -1,15 +1,11 @@
 # type: ignore[attr-defined]
 """imzy: A new reader/writer interface to imzML and other imaging mass spectrometry formats."""
 
-import sys
 
-from ._centroids import H5CentroidsStore, InMemoryStore, ZarrCentroidsStore  # noqa: F401
-from ._readers import IMZMLReader, get_reader  # noqa: F401
+from importlib import metadata as importlib_metadata
 
-if sys.version_info >= (3, 8):
-    from importlib import metadata as importlib_metadata
-else:
-    import importlib_metadata
+from imzy._centroids import H5CentroidsStore, InMemoryStore, ZarrCentroidsStore
+from imzy._readers import IMZMLReader, get_reader
 
 
 def get_version() -> str:

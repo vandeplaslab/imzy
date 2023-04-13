@@ -4,11 +4,11 @@ from pathlib import Path
 from warnings import warn
 
 import numpy as np
+from koyo.typing import PathLike
 from tqdm.auto import tqdm
 
-from ...types import PathLike
-from .._base import BaseReader
-from ._ontology import get_cv_param
+from imzy._readers._base import BaseReader
+from imzy._readers.imzml._ontology import get_cv_param
 
 PRECISION_DICT = {"32-bit float": "f", "64-bit float": "d", "32-bit integer": "i", "64-bit integer": "l"}
 SIZE_DICT = {"f": 4, "d": 8, "i": 4, "l": 8}
@@ -127,8 +127,7 @@ class IMZMLReader(BaseReader):
         return self._is_centroid
 
     def get_physical_coordinates(self, index: int):
-        """For a pixel index i, return real-world coordinates in
-        For a pixel index i, return the real-world coordinates in nanometers.
+        """For a pixel index i, return real-world coordinates in micrometers.
 
         This is equivalent to multiplying the image coordinates of the given pixel with the pixel size.
         """
@@ -186,7 +185,7 @@ class IMZMLReader(BaseReader):
         # we must create our own.
         # We have decided to create resampled spectrum with pre-defined ppm limit. This is not ideal but its better than
         # not doing it at all.
-        from ...utilities import get_ppm_axis, set_ppm_axis, trim_axis
+        from imzy.utilities import get_ppm_axis, set_ppm_axis, trim_axis
 
         mz_min, mz_max = self._estimate_mass_range()
         mz_x = get_ppm_axis(mz_min, mz_max, self.mz_ppm)
@@ -197,7 +196,7 @@ class IMZMLReader(BaseReader):
         return mz_x, mz_y
 
     def _estimate_mass_range(self) -> ty.Tuple[float, float]:
-        """This function will iterate over portion of the spectra and try to determine what is min/max m/z value."""
+        """Function will iterate over portion of the spectra and try to determine what is min/max m/z value."""
         if self._mz_min is None or self._mz_max is None:
             if self.n_pixels < 5000:
                 indices = self.pixels
@@ -267,9 +266,7 @@ def infer_path(path: Path, ibd_path: ty.Optional[PathLike] = None) -> ty.Tuple[P
 
 
 def read_imzml_metadata(root, sl: str = "{http://psi.hupo.org/ms/mzml}"):
-    """
-    This method should only be called by __init__. Initializes the imzmldict with frequently used metadata from
-    the .imzML file.
+    """Initializes the imzml dict with frequently used metadata from the .imzML file.
 
     This method reads only a subset of the available meta information and may be extended in the future. The keys
     are named similarly to the imzML names. Currently supported keys: "max dimension x", "max dimension y",
@@ -292,11 +289,11 @@ def read_imzml_metadata(root, sl: str = "{http://psi.hupo.org/ms/mzml}"):
             elem = elem_list.find(f'.//{sl}cvParam[@accession="{acc}"]')
             if elem is None:
                 break
-            name, T = param[idx]
+            name, value = param[idx]
             try:
-                metadata_dict[name] = T(elem.attrib[attr])
+                metadata_dict[name] = value(elem.attrib[attr])
             except ValueError:
-                warn(Warning('Wrong data type in XML file. Skipped attribute "%s"' % name))
+                warn(Warning(f"Wrong data type in XML file. Skipped attribute '{name}'"), stacklevel=3)
 
     metadata_dict = {}
     scan_settings_list_elem = root.find("%sscanSettingsList" % sl)
@@ -385,7 +382,7 @@ def init_metadata(path: Path, parse_lib: str = None, sl: str = "{http://psi.hupo
 
 
 def fix_offsets(offsets):
-    """Fix errors introduced by incorrect signed 32bit integers when unsigned 64bit was appropriate"""
+    """Fix errors introduced by incorrect signed 32bit integers when unsigned 64bit was appropriate."""
 
     def _fix(offsets, index: int):
         delta = 0
@@ -403,7 +400,7 @@ def fix_offsets(offsets):
 
 
 def assign_precision(int_group, mz_group, sl: str = "{http://psi.hupo.org/ms/mzml}"):
-    """Determine precision"""
+    """Determine precision."""
     valid_accession_strings = (
         "MS:1000521",
         "MS:1000523",

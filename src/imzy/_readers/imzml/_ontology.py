@@ -2,9 +2,9 @@
 from datetime import datetime
 from warnings import warn
 
-from ._ims import terms as ims_terms
-from ._ms import terms as ms_terms
-from ._uo import terms as uo_terms
+from imzy._readers.imzml._ims import terms as ims_terms
+from imzy._readers.imzml._ms import terms as ms_terms
+from imzy._readers.imzml._uo import terms as uo_terms
 
 all_terms = {}
 all_terms.update(uo_terms)
@@ -62,37 +62,39 @@ def convert_term_name(accession):
 
 
 def convert_cv_param(accession, value):
-    """
-    Looks up a term by accession number, and convert the provided value to the expected type.
-    """
+    """Looks up a term by accession number, and convert the provided value to the expected type."""
     name, dtype = all_terms.get(accession, (accession, None))
     converted_value = convert_xml_value(dtype, value)
     return converted_value
 
 
 def lookup_and_convert_cv_param(accession, raw_name, value, unit_accession=None):
-    """
-    Looks up a term by accession number, and returns the term name, its value converted into
-    the expected datatype, and the unit name (if a unit accession number is also given).
+    """Looks up a term by accession number, and returns the term name.
+
+    The value converted into the expected datatype, and the unit name (if a unit accession number is also given).
     """
     name, dtype = all_terms.get(accession, (raw_name or accession, None))
     converted_value = convert_xml_value(dtype, value)
     unit_name = all_terms.get(unit_accession, (unit_accession, None))[0]
 
     if accession not in all_terms:
-        warn(f'Unrecognized accession in <cvParam>: {accession} (name: "{raw_name}").')
+        warn(f'Unrecognized accession in <cvParam>: {accession} (name: "{raw_name}").', stacklevel=2)
     elif name != raw_name:
         fixed_accession = ACCESSION_FIX_MAPPING.get((accession, raw_name))
         if fixed_accession is not None:
             warn(
-                'Accession %s ("%s") found with mismatched name "%s". '
+                'Accession {} ("{}") found with mismatched name "{}". '
                 "This is a known bug with some imzML conversion software - using accession "
-                '%s ("%s") instead.' % (accession, name, raw_name, fixed_accession, raw_name)
+                '{} ("{}") instead.'.format(accession, name, raw_name, fixed_accession, raw_name),
+                stacklevel=2,
             )
             accession = fixed_accession
             name = raw_name
         else:
-            warn(f'Accession {accession} found with incorrect name "{raw_name}". Updating name to "{name}".')
+            warn(
+                f'Accession {accession} found with incorrect name "{raw_name}". Updating name to "{name}".',
+                stacklevel=2,
+            )
 
     return accession, name, converted_value, unit_name
 

@@ -9,10 +9,10 @@ try:
 except ImportError:
     h5py = None
 
-from imzy.utilities import find_nearest_index
+from koyo.typing import PathLike
+from koyo.utilities import find_nearest_index
 
-from ..types import PathLike
-from ._base import BaseCentroids
+from imzy._centroids._base import BaseCentroids
 
 
 class H5CentroidsStore(BaseCentroids):
@@ -93,7 +93,7 @@ class H5CentroidsStore(BaseCentroids):
 
     @contextmanager
     def lazy_peaks(self):
-        """Get reference to the peak's data without actually loading it into memory"""
+        """Get reference to the peak's data without actually loading it into memory."""
         if self.is_chunked:
             if self._proxy is None:
                 self._proxy = LazyPeaksProxy(self)
@@ -130,7 +130,7 @@ class H5CentroidsStore(BaseCentroids):
 
     @contextmanager
     def open(self, mode: str = None):
-        """Safely open storage"""
+        """Safely open storage."""
         if mode is None:
             mode = self.mode
         try:
@@ -169,7 +169,7 @@ class H5CentroidsStore(BaseCentroids):
         compression_opts=None,
         shape=None,
     ):
-        """Add data to group"""
+        """Add data to group."""
         replaced_dataset = False
 
         if dtype is None:
@@ -230,7 +230,7 @@ class LazyPeaksProxy:
     def shape(self) -> ty.Tuple[int, int]:
         """Return shape."""
         chunk_info = self.obj.chunk_info
-        n_px = chunk_info[max(chunk_info.keys())].max()  # noqa
+        n_px = chunk_info[max(chunk_info.keys())].max()
         return n_px, self.obj.n_peaks
 
     @property

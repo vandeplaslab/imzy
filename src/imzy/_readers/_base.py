@@ -3,17 +3,11 @@ import typing as ty
 from pathlib import Path
 
 import numpy as np
+from koyo.spectrum import find_between_batch, find_between_ppm, find_between_tol, get_mzs_for_tol
+from koyo.typing import PathLike
 from tqdm import tqdm
 
-from ..types import PathLike
-from ..utilities import (
-    accumulate_peaks_centroid,
-    accumulate_peaks_profile,
-    find_between_batch,
-    find_between_ppm,
-    find_between_tol,
-    get_mzs_for_tol,
-)
+from imzy.utilities import accumulate_peaks_centroid, accumulate_peaks_profile
 
 
 class BaseReader:
@@ -31,7 +25,7 @@ class BaseReader:
         return self
 
     def __next__(self):
-        """Get next spectrum"""
+        """Get next spectrum."""
         if self._current < self.n_pixels - 1:
             self._current += 1
             return self[self._current]
@@ -40,7 +34,7 @@ class BaseReader:
             raise StopIteration
 
     def __getitem__(self, item: int):
-        """Retrieve spectrum"""
+        """Retrieve spectrum."""
         return self.get_spectrum(item)
 
     def _init(self):
@@ -64,7 +58,7 @@ class BaseReader:
 
     @property
     def x_coordinates(self) -> np.ndarray:
-        """Return x-axis coordinates/"""
+        """Return x-axis coordinates/."""
         return self._xyz_coordinates[:, 0]
 
     @property
@@ -136,7 +130,7 @@ class BaseReader:
         else:
             x, _ = self[0]
             mask = func(x, mz, val)
-            for i, (x, y) in enumerate(self.iter_spectra(silent)):
+            for i, (_, y) in enumerate(self.iter_spectra(silent)):
                 res[i] = y[mask].sum()
         return self.reshape(res)
 
@@ -196,7 +190,7 @@ class BaseReader:
         silent: bool = False,
     ) -> Path:
         """Export many ion images for specified m/z values (+ tolerance) to Zarr array."""
-        from .._extract import check_zarr, create_centroids_zarr, extract_centroids_zarr, rechunk_zarr_array
+        from imzy._extract import check_zarr, create_centroids_zarr, extract_centroids_zarr, rechunk_zarr_array
 
         if not as_flat:
             raise ValueError("Only flat images are supported at the moment.")
@@ -250,7 +244,7 @@ class BaseReader:
         silent: bool = False,
     ) -> Path:
         """Export many ion images for specified m/z values (+ tolerance) to a HDF5 store."""
-        from .._extract import check_hdf5, create_centroids_hdf5, extract_centroids_hdf5, get_chunk_info
+        from imzy._extract import check_hdf5, create_centroids_hdf5, extract_centroids_hdf5, get_chunk_info
 
         if not as_flat:
             raise ValueError("Only flat images are supported at the moment.")
@@ -267,7 +261,7 @@ class BaseReader:
             hdf_path = hdf_path.with_suffix(".h5")
 
         if hdf_path.exists():
-            from .._centroids import H5CentroidsStore
+            from imzy._centroids import H5CentroidsStore
 
             store = H5CentroidsStore(hdf_path)
             if store.n_peaks == len(mzs):

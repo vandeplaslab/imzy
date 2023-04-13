@@ -10,9 +10,10 @@ try:
 except ImportError:
     ds, zarr = None, None
 
-from ..types import PathLike
-from ..utilities import find_nearest_index_single
-from ._base import BaseCentroids
+from koyo.typing import PathLike
+from koyo.utilities import find_nearest_index_single
+
+from imzy._centroids._base import BaseCentroids
 
 
 class ZarrCentroidsStore(BaseCentroids):
@@ -43,7 +44,7 @@ class ZarrCentroidsStore(BaseCentroids):
         return f"{self.__class__.__name__}<filename={self.path.name}; no. images={len(self.xs)}>"
 
     def get_ion(self, value: ty.Union[int, float]) -> np.ndarray:
-        """Get ion array"""
+        """Get ion array."""
         if isinstance(value, float):
             value = find_nearest_index_single(self.xs, value)
         return self.peaks[:, value].compute()
