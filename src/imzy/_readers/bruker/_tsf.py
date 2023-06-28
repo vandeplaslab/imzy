@@ -162,8 +162,11 @@ class TSFReader(BrukerBaseReader):
 
     #     return index_buf[0:required_len], intensity_buf[0:required_len], width_buf[0:required_len]
 
-    # Output intensities
     def _read_spectrum(self, index: int):
+        return self.mz_x, self.read_profile_spectrum(index)
+    
+    # Output intensities
+    def read_profile_spectrum(self, index: int):
         # buffer-growing loop
         while True:
             cnt = int(self.profile_buffer_size)  # necessary cast to run with python 3.5

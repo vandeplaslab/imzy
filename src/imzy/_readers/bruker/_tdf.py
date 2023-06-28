@@ -1,5 +1,4 @@
 """Python wrapper for timsdata.dll."""
-import sys
 from ctypes import (
     CFUNCTYPE,
     POINTER,
@@ -17,6 +16,7 @@ from ctypes import (
 )
 from enum import Enum
 from pathlib import Path
+from koyo.system import IS_LINUX, IS_WIN
 
 import numpy as np
 from koyo.typing import PathLike
@@ -25,14 +25,16 @@ from scipy import sparse
 from imzy._readers.bruker._mixin import BrukerBaseReader
 from imzy._readers.bruker.utilities import get_sparse_data_from_buffer
 
-if sys.platform[:5] == "win32":
+_base_path = Path(__file__).parent.absolute()
+if IS_WIN:
     libname = "timsdata.dll"
-elif sys.platform[:5] == "linux":
+elif IS_LINUX:
     libname = "libtimsdata.so"
 else:
     raise Exception("Unsupported platform.")
 
-dll_path = Path(__file__).parent.absolute() / libname
+dll_path = _base_path / libname
+print(dll_path, dll_path.exists())
 if dll_path.exists():
     dll = cdll.LoadLibrary(str(dll_path))
 else:
@@ -225,7 +227,7 @@ class TDFReader(BrukerBaseReader):
 
     def _read_spectrum(self, index: int):
         """Return profile spectrum."""
-        return self.read_frame(index + 1).sum(axis=1).A.flatten()
+        return self.mz_x, self.read_frame(index + 1).sum(axis=1).A.flatten()
 
     def _read_scan_buffer(self, index, scan_begin, scan_end):
         """Read a range of scans from a frame.
