@@ -2,11 +2,6 @@ import numba
 import numpy as np
 
 
-def get_min_max(values):
-    """Get the minimum and maximum value of an array."""
-    return np.min(values), np.max(values)
-
-
 @numba.njit(fastmath=True, cache=True)
 def get_sparse_data_from_buffer(buffer: np.ndarray, mz_min_idx: int, mz_max_idx: int, scan_begin: int, scan_end: int):
     """Get the instantiation values for COO array by iterating over the data extracted from the Bruker frame.
@@ -52,9 +47,3 @@ def get_sparse_data_from_buffer(buffer: np.ndarray, mz_min_idx: int, mz_max_idx:
                 rows.append(mz_val)
                 cols.append(col)
     return np.asarray(data), np.asarray(rows), np.asarray(cols)
-
-
-@numba.njit()
-def find_between(data: np.ndarray, min_value: float, max_value: float):
-    """Find indices between windows."""
-    return np.where(np.logical_and(data >= min_value, data <= max_value))[0]

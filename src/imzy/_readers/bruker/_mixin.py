@@ -51,14 +51,14 @@ class BrukerBaseReader(BaseReader):
     def is_centroid(self) -> bool:
         """Flag to indicate whether the data is in centroid or profile mode."""
         try:
-            self._read_spectrum(0)
+            self._read_spectrum(1)
             return True
         except RuntimeError:
             return False
 
     def get_summed_spectrum(self, indices: ty.Iterable[int], silent: bool = False):
         """Sum pixel data to produce summed mass spectrum."""
-        indices = np.asarray(indices) + 1
+        indices = np.asarray(indices)
         if np.any(indices >= self.n_pixels):
             raise ValueError("You cannot specify indices that are greater than the total number of pixels.")
         mz_y = np.zeros_like(self.mz_x, dtype=np.float64)
@@ -72,7 +72,6 @@ class BrukerBaseReader(BaseReader):
     def _read_spectra(self, indices: ty.Optional[np.ndarray] = None) -> ty.Iterator[ty.Tuple[np.ndarray, np.ndarray]]:
         if indices is None:
             indices = self.pixels
-        indices += 1  # indices start at 1 in Bruker files
         for index in indices:
             yield self.mz_x, self._read_spectrum(index)
 
@@ -141,7 +140,7 @@ class BrukerBaseReader(BaseReader):
     @property
     def mz_index(self):
         """Return index."""
-        bruker_mz_max = self.read_profile_spectrum(1).shape[0]
+        bruker_mz_max = self._read_spectrum(1).shape[0]
         return np.arange(0, bruker_mz_max)
 
     @property
@@ -155,7 +154,7 @@ class BrukerBaseReader(BaseReader):
     def mz_to_index(self, frame_id, mzs):
         return self._call_conversion_func(frame_id, mzs, self._dll_mz_to_index_func)
 
-    def read_profile_spectrum(self, frame_id: int):
+    def _read_spectrum(self, frame_id: int):
         raise NotImplementedError("Must implement method")
 
     def get_n_pixels(self):

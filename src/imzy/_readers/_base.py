@@ -305,8 +305,7 @@ class BaseReader:
 
     def spectra_iter(self, indices: ty.Optional[ty.Iterable[int]] = None, silent: bool = False):
         """Yield spectra."""
-        indices = self.pixels + 1 if indices is None else np.asarray(indices)
-        print(indices)
+        indices = self.pixels if indices is None else np.asarray(indices)
         yield from tqdm(
             self._read_spectra(indices), total=len(indices), disable=silent, miniters=500, desc="Iterating spectra..."
         )

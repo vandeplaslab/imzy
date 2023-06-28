@@ -101,76 +101,76 @@ class TSFReader(BrukerBaseReader):
             _throw_last_error(self.dll)
         return out
 
-    # Output: tuple of lists (indices, intensities)
-    def read_centroid_spectrum(self, index):
-        # buffer-growing loop
-        while True:
-            cnt = int(self.profile_buffer_size)  # necessary cast to run with python 3.5
-            index_buf = np.empty(shape=cnt, dtype=np.float64)
-            intensity_buf = np.empty(shape=cnt, dtype=np.float32)
+    # # Output: tuple of lists (indices, intensities)
+    # def read_centroid_spectrum(self, index):
+    #     # buffer-growing loop
+    #     while True:
+    #         cnt = int(self.profile_buffer_size)  # necessary cast to run with python 3.5
+    #         index_buf = np.empty(shape=cnt, dtype=np.float64)
+    #         intensity_buf = np.empty(shape=cnt, dtype=np.float32)
 
-            required_len = self.dll.tsf_read_line_spectrum_v2(
-                self.handle,
-                index,
-                index_buf.ctypes.data_as(POINTER(c_double)),
-                intensity_buf.ctypes.data_as(POINTER(c_float)),
-                self.profile_buffer_size,
-            )
+    #         required_len = self.dll.tsf_read_line_spectrum_v2(
+    #             self.handle,
+    #             index,
+    #             index_buf.ctypes.data_as(POINTER(c_double)),
+    #             intensity_buf.ctypes.data_as(POINTER(c_float)),
+    #             self.profile_buffer_size,
+    #         )
 
-            if required_len < 0:
-                _throw_last_error(self.dll)
+    #         if required_len < 0:
+    #             _throw_last_error(self.dll)
 
-            if required_len > self.profile_buffer_size:
-                if required_len > 16777216:
-                    # arbitrary limit for now...
-                    raise RuntimeError("Maximum expected frame size exceeded.")
-                self.line_buffer_size = required_len  # grow buffer
-            else:
-                break
+    #         if required_len > self.profile_buffer_size:
+    #             if required_len > 16777216:
+    #                 # arbitrary limit for now...
+    #                 raise RuntimeError("Maximum expected frame size exceeded.")
+    #             self.line_buffer_size = required_len  # grow buffer
+    #         else:
+    #             break
 
-        return index_buf[0:required_len], intensity_buf[0:required_len]
+    #     return index_buf[0:required_len], intensity_buf[0:required_len]
 
-        # Output: tuple of lists (indices, intensities, widths)
+    #     # Output: tuple of lists (indices, intensities, widths)
 
-    def read_centroid_spectrum_with_width(self, index):
-        # buffer-growing loop
-        while True:
-            cnt = int(self.profile_buffer_size)  # necessary cast to run with python 3.5
-            index_buf = np.empty(shape=cnt, dtype=np.float64)
-            intensity_buf = np.empty(shape=cnt, dtype=np.float32)
-            width_buf = np.empty(shape=cnt, dtype=np.float32)
+    # def read_centroid_spectrum_with_width(self, index):
+    #     # buffer-growing loop
+    #     while True:
+    #         cnt = int(self.profile_buffer_size)  # necessary cast to run with python 3.5
+    #         index_buf = np.empty(shape=cnt, dtype=np.float64)
+    #         intensity_buf = np.empty(shape=cnt, dtype=np.float32)
+    #         width_buf = np.empty(shape=cnt, dtype=np.float32)
 
-            required_len = self.dll.tsf_read_line_spectrum_with_width_v2(
-                self.handle,
-                index,
-                index_buf.ctypes.data_as(POINTER(c_double)),
-                intensity_buf.ctypes.data_as(POINTER(c_float)),
-                width_buf.ctypes.data_as(POINTER(c_float)),
-                self.profile_buffer_size,
-            )
+    #         required_len = self.dll.tsf_read_line_spectrum_with_width_v2(
+    #             self.handle,
+    #             index,
+    #             index_buf.ctypes.data_as(POINTER(c_double)),
+    #             intensity_buf.ctypes.data_as(POINTER(c_float)),
+    #             width_buf.ctypes.data_as(POINTER(c_float)),
+    #             self.profile_buffer_size,
+    #         )
 
-            if required_len < 0:
-                _throw_last_error(self.dll)
+    #         if required_len < 0:
+    #             _throw_last_error(self.dll)
 
-            if required_len > self.profile_buffer_size:
-                if required_len > 16777216:
-                    # arbitrary limit for now...
-                    raise RuntimeError("Maximum expected frame size exceeded.")
-                self.profile_buffer_size = required_len  # grow buffer
-            else:
-                break
+    #         if required_len > self.profile_buffer_size:
+    #             if required_len > 16777216:
+    #                 # arbitrary limit for now...
+    #                 raise RuntimeError("Maximum expected frame size exceeded.")
+    #             self.profile_buffer_size = required_len  # grow buffer
+    #         else:
+    #             break
 
-        return index_buf[0:required_len], intensity_buf[0:required_len], width_buf[0:required_len]
+    #     return index_buf[0:required_len], intensity_buf[0:required_len], width_buf[0:required_len]
 
     # Output intensities
-    def _read_spectrum(self, index):
+    def _read_spectrum(self, index: int):
         # buffer-growing loop
         while True:
             cnt = int(self.profile_buffer_size)  # necessary cast to run with python 3.5
             intensity_buf = np.empty(shape=cnt, dtype=np.uint32)
 
             required_len = self.dll.tsf_read_profile_spectrum_v2(
-                self.handle, index, intensity_buf.ctypes.data_as(POINTER(c_uint32)), self.profile_buffer_size
+                self.handle, index + 1, intensity_buf.ctypes.data_as(POINTER(c_uint32)), self.profile_buffer_size
             )
 
             if required_len < 0:

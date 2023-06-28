@@ -608,3 +608,5 @@ MigrationBackup/
 
 _version.py
 .idea/imzy.iml
+*.icache/
+*.imimspy.cache
