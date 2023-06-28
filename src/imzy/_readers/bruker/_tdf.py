@@ -1,6 +1,4 @@
 """Python wrapper for timsdata.dll."""
-
-import os
 import sys
 from ctypes import (
     CFUNCTYPE,
@@ -34,9 +32,9 @@ elif sys.platform[:5] == "linux":
 else:
     raise Exception("Unsupported platform.")
 
-dll_path = (Path(__file__).parent.absolute() / libname).as_posix()
-if os.path.exists(dll_path):
-    dll = cdll.LoadLibrary(dll_path)
+dll_path = Path(__file__).parent.absolute() / libname
+if dll_path.exists():
+    dll = cdll.LoadLibrary(str(dll_path))
 else:
     dll = cdll.LoadLibrary(libname)
 

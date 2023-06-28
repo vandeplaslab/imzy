@@ -1,6 +1,4 @@
 """Python wrapper for timsdata.dll for reading tsf."""
-
-import os
 import sys
 from ctypes import (
     POINTER,
@@ -28,9 +26,9 @@ elif sys.platform[:5] == "linux":
 else:
     raise Exception("Unsupported platform.")
 
-path = (Path(__file__).parent.absolute() / libname).as_posix()
-if os.path.exists(path):
-    dll = cdll.LoadLibrary(path)
+dll_path = Path(__file__).parent.absolute() / libname
+if dll_path.exists():
+    dll = cdll.LoadLibrary(str(dll_path))
 else:
     dll = cdll.LoadLibrary(libname)
 
