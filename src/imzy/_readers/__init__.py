@@ -33,8 +33,8 @@ def get_reader(path: PathLike, **kwargs) -> "BaseReader":
     path = Path(path)
     if path.suffix.lower() == ".imzml":
         return IMZMLReader(path, **kwargs)
-    elif path.suffix.lower() == ".d" and path / "analysis.tdf" and not IS_MAC:
+    elif path.suffix.lower() == ".d" and (path / "analysis.tdf").exists() and not IS_MAC:
         return TDFReader(path, **kwargs)
-    elif path.suffix.lower() == ".d" and path / "analysis.tsf" and not IS_MAC:
+    elif path.suffix.lower() == ".d" and (path / "analysis.tsf").exists() and not IS_MAC:
         return TSFReader(path, **kwargs)
     raise NotImplementedError("Reader for dataset with specified path has not been implemented yet.")
