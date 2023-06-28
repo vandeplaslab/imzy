@@ -16,17 +16,19 @@ from pathlib import Path
 
 import numpy as np
 from koyo.typing import PathLike
+from koyo.system import IS_LINUX, IS_WIN
 
 from imzy._readers.bruker._mixin import BrukerBaseReader
 
-if sys.platform[:5] == "win32":
+if IS_WIN:
     libname = "timsdata.dll"
-elif sys.platform[:5] == "linux":
+elif IS_LINUX:
     libname = "libtimsdata.so"
 else:
     raise Exception("Unsupported platform.")
 
 dll_path = Path(__file__).parent.absolute() / libname
+print(dll_path, dll_path.exists())
 if dll_path.exists():
     dll = cdll.LoadLibrary(str(dll_path))
 else:
