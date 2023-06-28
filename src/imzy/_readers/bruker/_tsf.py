@@ -79,18 +79,21 @@ class TSFReader(BrukerBaseReader):
 
     def _init(self):
         super()._init()
-        self.handle = self.dll.tsf_open(str(path).encode("utf-8"), 1 if self.use_recalibrated_state else 0)
+        self.dll = dll
+        # dll functions
+        self._dll_close_func = dll.tsf_close
+        self._dll_index_to_mz_func = self.dll.tsf_index_to_mz
+        self._dll_mz_to_index_func = self.dll.tsf_mz_to_index
+        # init handle
+        self.handle = self.dll.tsf_open(str(self.path).encode("utf-8"), 1 if self.use_recalibrated_state else 0)
         if self.handle == 0:
             _throw_last_error(self.dll)
 
         self.line_buffer_size = 1024  # may grow in read...Spectrum()
         self.profile_buffer_size = 1024  # may grow in read...Spectrum()
 
-        # dll functions
-        self.dll = dll
-        self._dll_close_func = dll.tsf_close
-        self._dll_index_to_mz_func = self.dll.tsf_index_to_mz
-        self._dll_mz_to_index_func = self.dll.tsf_mz_to_index
+        # data attributes
+        self.n_mz_bins = int(np.round(self.mz_to_index(1, [self.mz_max])))
 
     def _call_conversion_func(self, index, input_data, func):
         success, out = self._call_conversion_func_base(index, input_data, func)

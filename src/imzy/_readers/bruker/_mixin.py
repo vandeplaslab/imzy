@@ -28,8 +28,8 @@ class BrukerBaseReader(BaseReader):
 
     def __init__(self, path: PathLike):
         self.conn = sqlite3.connect(Path(path) / self.sql_filename)
-
         super().__init__(path)
+        self._init()
 
     def _init(self):
         """Extra initialization."""

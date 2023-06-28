@@ -171,6 +171,11 @@ class TDFReader(BrukerBaseReader):
     def _init(self):
         super()._init()
         self.dll = dll
+        # dll functions
+        self._dll_close_func = self.dll.tims_close
+        self._dll_index_to_mz_func = self.dll.tims_index_to_mz
+        self._dll_mz_to_index_func = self.dll.tims_mz_to_index
+        # init handle
         self.handle = self.dll.tims_open_v2(
             str(self.path).encode("utf-8"),
             1 if self.use_recalibrated_state else 0,
@@ -180,11 +185,6 @@ class TDFReader(BrukerBaseReader):
             _throw_last_error(self.dll)
 
         self.initial_frame_buffer_size = 1024  # may grow in _read_scans()
-
-        # DLL functions
-        self._dll_close_func = self.dll.tims_close
-        self._dll_index_to_mz_func = self.dll.tims_index_to_mz
-        self._dll_mz_to_index_func = self.dll.tims_mz_to_index
 
         # data attributes
         self.n_dt_bins = self.get_n_mobility_bins()
