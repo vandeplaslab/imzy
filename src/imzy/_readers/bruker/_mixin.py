@@ -27,12 +27,13 @@ class BrukerBaseReader(BaseReader):
     _dll_mz_to_index_func: ty.Callable
 
     def __init__(self, path: PathLike):
-        self.conn = sqlite3.connect(Path(path) / self.sql_filename)
         super().__init__(path)
         self._init()
 
     def _init(self):
         """Extra initialization."""
+        assert (self.path / self.sql_filename).exists(), f"Could not find {self.sql_filename} file."
+        self.conn = sqlite3.connect(self.path / self.sql_filename)
         self._mz_min, self._mz_max = self.get_acquisition_mass_range()
         self.get_region_information()
 
