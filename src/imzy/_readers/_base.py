@@ -112,7 +112,7 @@ class BaseReader:
         """Return chromatogram."""
         indices = np.asarray(indices)
         array = np.zeros(len(indices), dtype=np.float32)
-        for y in self.iter_spectra(indices):
+        for y in self.spectra_iter(indices):
             array += np.sum(y)
         return array
 
@@ -120,7 +120,7 @@ class BaseReader:
         """Return TIC image."""
         if self._tic is None:
             res = np.zeros(self.n_pixels)
-            for i, (_, y) in enumerate(self.iter_spectra(silent)):
+            for i, (_, y) in enumerate(self.spectra_iter(silent=silent)):
                 res[i] = y.sum()
             self._tic = res
         return self._tic
@@ -137,13 +137,13 @@ class BaseReader:
         val = tol if tol else ppm
         res = np.full(self.n_pixels, dtype=np.float32, fill_value=fill_value)
         if self.is_centroid:
-            for i, (x, y) in enumerate(self.iter_spectra(silent)):
+            for i, (x, y) in enumerate(self.spectra_iter(silent=silent)):
                 mask = func(x, mz, val)
                 res[i] = y[mask].sum()
         else:
             x, _ = self[0]
             mask = func(x, mz, val)
-            for i, (_, y) in enumerate(self.iter_spectra(silent)):
+            for i, (_, y) in enumerate(self.spectra_iter(silent=silent)):
                 res[i] = y[mask].sum()
         return self.reshape(res)
 
@@ -160,12 +160,12 @@ class BaseReader:
         res = np.full((self.n_pixels, len(mzs)), dtype=np.float32, fill_value=fill_value)
 
         if self.is_centroid:
-            for i, (x, y) in enumerate(self.iter_spectra(silent)):
+            for i, (x, y) in enumerate(self.spectra_iter(silent=silent)):
                 res[i] = accumulate_peaks_centroid(mzs_min, mzs_max, x, y)
         else:
             x, _ = self.get_spectrum(0)
             indices = find_between_batch(x, mzs_min, mzs_max)
-            for i, (_, y) in enumerate(self.iter_spectra(silent)):
+            for i, (_, y) in enumerate(self.spectra_iter(silent=silent)):
                 res[i] = accumulate_peaks_profile(indices, y)
         return res
 
@@ -303,7 +303,7 @@ class BaseReader:
         )
         return hdf_path
 
-    def iter_spectra(self, indices: ty.Optional[ty.Iterable[int]] = None, silent: bool = False):
+    def spectra_iter(self, indices: ty.Optional[ty.Iterable[int]] = None, silent: bool = False):
         """Yield spectra."""
         indices = self.pixels if indices is None else np.asarray(indices)
         yield from tqdm(

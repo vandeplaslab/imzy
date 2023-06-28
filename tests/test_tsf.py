@@ -41,7 +41,7 @@ def test_init(path):
     assert images.ndim == 3
     assert len(images) == 2
 
-    for x, y in reader.iter_spectra():
+    for x, y in reader.spectra_iter():
         assert x.shape == y.shape
 
     # get summed spectrum
