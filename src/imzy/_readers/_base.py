@@ -21,6 +21,47 @@ class BaseReader:
     def __init__(self, path: PathLike):
         self.path = Path(path)
 
+    def _init(self):
+        """Method which is called to initialize the reader."""
+        raise NotImplementedError("Must implement method")
+
+    @property
+    def mz_min(self) -> float:
+        """Minimum m/z value."""
+        raise NotImplementedError("Must implement method")
+
+    @property
+    def mz_max(self) -> float:
+        """Maximum m/z value."""
+        raise NotImplementedError("Must implement method")
+
+    @property
+    def is_centroid(self) -> bool:
+        """Flag to indicate whether the data is in centroid or profile mode."""
+        raise NotImplementedError("Must implement method")
+
+    def get_spectrum(self, index: int):
+        """Return mass spectrum."""
+        return self._read_spectrum(index)
+
+    def get_summed_spectrum(self, indices: ty.Iterable[int], silent: bool = False):
+        """Sum pixel data to produce summed mass spectrum."""
+        raise NotImplementedError("Must implement method")
+
+    def _read_spectrum(self, index: int) -> ty.Tuple[np.ndarray, np.ndarray]:
+        raise NotImplementedError("Must implement method")
+
+    def _read_spectra(self, indices: ty.Optional[np.ndarray] = None) -> ty.Iterator[ty.Tuple[np.ndarray, np.ndarray]]:
+        raise NotImplementedError("Must implement method")
+
+    def reshape(self, array: np.ndarray, fill_value: float = 0) -> np.ndarray:
+        """Reshape vector into an image."""
+        raise NotImplementedError("Must implement method")
+
+    def reshape_batch(self, array: np.ndarray, fill_value: float = 0) -> np.ndarray:
+        """Reshape multiple vectors into a stack of images."""
+        raise NotImplementedError("Must implement method")
+
     def __iter__(self):
         return self
 
@@ -36,20 +77,6 @@ class BaseReader:
     def __getitem__(self, item: int):
         """Retrieve spectrum."""
         return self.get_spectrum(item)
-
-    def _init(self):
-        """Method which is called to initialize the reader."""
-        raise NotImplementedError("Must implement method")
-
-    @property
-    def mz_min(self) -> float:
-        """Minimum m/z value."""
-        raise NotImplementedError("Must implement method")
-
-    @property
-    def mz_max(self) -> float:
-        """Maximum m/z value."""
-        raise NotImplementedError("Must implement method")
 
     @property
     def xyz_coordinates(self) -> np.ndarray:
@@ -81,27 +108,13 @@ class BaseReader:
         """Return the total number of pixels in the dataset."""
         return len(self.x_coordinates)
 
-    @property
-    def is_centroid(self) -> bool:
-        """Flag to indicate whether the data is in centroid or profile mode."""
-        raise NotImplementedError("Must implement method")
-
-    def get_spectrum(self, index: int):
-        """Return mass spectrum."""
-        return self._read_spectrum(index)
-
-    def get_summed_spectrum(self, indices: ty.Iterable[int], silent: bool = False):
-        """Sum pixel data to produce summed mass spectrum."""
-        raise NotImplementedError("Must implement method")
-
-    def _read_spectrum(self, index: int) -> ty.Tuple[np.ndarray, np.ndarray]:
-        raise NotImplementedError("Must implement method")
-
-    def _read_spectra(self, indices: ty.Optional[np.ndarray] = None) -> ty.Iterator[ty.Tuple[np.ndarray, np.ndarray]]:
-        raise NotImplementedError("Must implement method")
-
     def get_chromatogram(self, indices: ty.Iterable[int]):
         """Return chromatogram."""
+        indices = np.asarray(indices)
+        array = np.zeros(len(indices), dtype=np.float32)
+        for y in self.iter_spectra(indices):
+            array += np.sum(y)
+        return array
 
     def get_tic(self, silent: bool = False) -> np.ndarray:
         """Return TIC image."""
@@ -290,16 +303,9 @@ class BaseReader:
         )
         return hdf_path
 
-    def reshape(self, array: np.ndarray, fill_value: float = 0) -> np.ndarray:
-        """Reshape vector into an image."""
-        raise NotImplementedError("Must implement method")
-
-    def reshape_batch(self, array: np.ndarray, fill_value: float = 0) -> np.ndarray:
-        """Reshape multiple vectors into a stack of images."""
-        raise NotImplementedError("Must implement method")
-
-    def iter_spectra(self, silent: bool = False):
+    def iter_spectra(self, indices: ty.Optional[ty.Iterable[int]]=None, silent: bool = False):
         """Yield spectra."""
+        indices = self.pixels if indices is None else np.asarray(indices)
         yield from tqdm(
-            self._read_spectra(), total=self.n_pixels, disable=silent, miniters=500, desc="Iterating spectra..."
+            self._read_spectra(indices), total=len(indices), disable=silent, miniters=500, desc="Iterating spectra..."
         )
