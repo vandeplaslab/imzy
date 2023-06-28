@@ -303,7 +303,7 @@ class BaseReader:
         )
         return hdf_path
 
-    def iter_spectra(self, indices: ty.Optional[ty.Iterable[int]]=None, silent: bool = False):
+    def iter_spectra(self, indices: ty.Optional[ty.Iterable[int]] = None, silent: bool = False):
         """Yield spectra."""
         indices = self.pixels if indices is None else np.asarray(indices)
         yield from tqdm(

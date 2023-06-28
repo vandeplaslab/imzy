@@ -174,8 +174,9 @@ class TDFReader(BrukerBaseReader):
         super()._init()
         self.dll = dll
         self.handle = self.dll.tims_open_v2(
-            str(self.path).encode("utf-8"), 1 if self.use_recalibrated_state else 0,
-            self.pressure_compensation_strategy.value
+            str(self.path).encode("utf-8"),
+            1 if self.use_recalibrated_state else 0,
+            self.pressure_compensation_strategy.value,
         )
         if self.handle == 0:
             _throw_last_error(self.dll)

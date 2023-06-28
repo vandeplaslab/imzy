@@ -17,6 +17,7 @@ from ctypes import (
 from pathlib import Path
 
 import numpy as np
+from koyo.typing import PathLike
 
 from imzy._readers.bruker._mixin import BrukerBaseReader
 
@@ -74,11 +75,13 @@ def _throw_last_error(dll_handle):
 class TSFReader(BrukerBaseReader):
     sql_filename = "analysis.tsf"
 
-    def __init__(self, analysis_dir: str, use_recalibrated_state=False):
-        super().__init__(analysis_dir)
-        self.dll = dll
+    def __init__(self, path: PathLike, use_recalibrated_state=False):
+        self.use_recalibrated_state = use_recalibrated_state
+        super().__init__(path)
 
-        self.handle = self.dll.tsf_open(analysis_dir.encode("utf-8"), 1 if use_recalibrated_state else 0)
+    def _init(self):
+        super()._init()
+        self.handle = self.dll.tsf_open(str(path).encode("utf-8"), 1 if self.use_recalibrated_state else 0)
         if self.handle == 0:
             _throw_last_error(self.dll)
 
@@ -86,6 +89,7 @@ class TSFReader(BrukerBaseReader):
         self.profile_buffer_size = 1024  # may grow in read...Spectrum()
 
         # dll functions
+        self.dll = dll
         self._dll_close_func = dll.tsf_close
         self._dll_index_to_mz_func = self.dll.tsf_index_to_mz
         self._dll_mz_to_index_func = self.dll.tsf_mz_to_index
@@ -119,7 +123,7 @@ class TSFReader(BrukerBaseReader):
                 if required_len > 16777216:
                     # arbitrary limit for now...
                     raise RuntimeError("Maximum expected frame size exceeded.")
-                self.profile_buffer_size = required_len  # grow buffer
+                self.line_buffer_size = required_len  # grow buffer
             else:
                 break
 

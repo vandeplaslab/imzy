@@ -5,7 +5,7 @@
 from importlib import metadata as importlib_metadata
 
 from imzy._centroids import H5CentroidsStore, InMemoryStore, ZarrCentroidsStore
-from imzy._readers import IMZMLReader, get_reader
+from imzy._readers import IMZMLReader, TDFReader, TSFReader, get_reader
 
 
 def get_version() -> str:
@@ -17,4 +17,12 @@ def get_version() -> str:
 
 
 __version__: str = get_version()
-__all__ = ("IMZMLReader", "get_reader", "H5CentroidsStore", "ZarrCentroidsStore", "InMemoryStore")
+__all__ = (
+    "IMZMLReader",
+    "TDFReader",
+    "TSFReader",
+    "get_reader",
+    "H5CentroidsStore",
+    "ZarrCentroidsStore",
+    "InMemoryStore",
+)
