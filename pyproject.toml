@@ -169,7 +169,7 @@ exclude_lines = [
     "raise NotImplementedError()",
 ]
 [tool.coverage.run]
-source = ["src"]
+# source = ["src"]
 omit = [
     "tests/*",
    "*/__init__.py",
