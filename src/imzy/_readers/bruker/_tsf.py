@@ -1,5 +1,4 @@
 """Python wrapper for timsdata.dll for reading tsf."""
-import sys
 from ctypes import (
     POINTER,
     c_char_p,
@@ -15,8 +14,8 @@ from ctypes import (
 from pathlib import Path
 
 import numpy as np
-from koyo.typing import PathLike
 from koyo.system import IS_LINUX, IS_WIN
+from koyo.typing import PathLike
 
 from imzy._readers.bruker._mixin import BrukerBaseReader
 
@@ -166,7 +165,7 @@ class TSFReader(BrukerBaseReader):
 
     def _read_spectrum(self, index: int):
         return self.mz_x, self.read_profile_spectrum(index)
-    
+
     # Output intensities
     def read_profile_spectrum(self, index: int):
         # buffer-growing loop

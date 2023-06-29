@@ -25,3 +25,6 @@ include setup.cfg
 # Always include
 global-include *.pyx
 global-include *.c
+global-include src *.dll
+global-include src *.so
+global-include src *.txt

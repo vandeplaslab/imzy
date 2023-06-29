@@ -140,13 +140,15 @@ class BrukerBaseReader(BaseReader):
     @property
     def mz_index(self):
         """Return index."""
-        bruker_mz_max = self._read_spectrum(1).shape[0]
+        bruker_mz_max = self.read_profile_spectrum(1).shape[0]
         return np.arange(0, bruker_mz_max)
 
     @property
     def mz_x(self) -> np.ndarray:
         """Get x-axis of the mass spectrum."""
-        return self.index_to_mz(1, self.mz_index)
+        if self._mz_x is None:
+            self._mz_x = self.index_to_mz(1, self.mz_index)
+        return self._mz_x
 
     def index_to_mz(self, frame_id, indices):
         return self._call_conversion_func(frame_id, indices, self._dll_index_to_mz_func)
@@ -154,7 +156,10 @@ class BrukerBaseReader(BaseReader):
     def mz_to_index(self, frame_id, mzs):
         return self._call_conversion_func(frame_id, mzs, self._dll_mz_to_index_func)
 
-    def _read_spectrum(self, frame_id: int):
+    def _read_spectrum(self, index: int):
+        raise NotImplementedError("Must implement method")
+
+    def read_profile_spectrum(self, index: int):
         raise NotImplementedError("Must implement method")
 
     def get_n_pixels(self):

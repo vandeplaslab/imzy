@@ -16,9 +16,9 @@ from ctypes import (
 )
 from enum import Enum
 from pathlib import Path
-from koyo.system import IS_LINUX, IS_WIN
 
 import numpy as np
+from koyo.system import IS_LINUX, IS_WIN
 from koyo.typing import PathLike
 from scipy import sparse
 
@@ -227,7 +227,11 @@ class TDFReader(BrukerBaseReader):
 
     def _read_spectrum(self, index: int):
         """Return profile spectrum."""
-        return self.mz_x, self.read_frame(index + 1).sum(axis=1).A.flatten()
+        return self.mz_x, self.read_profile_spectrum(index)
+
+    def read_profile_spectrum(self, index: int):
+        """Return profile spectrum."""
+        return self.read_frame(index + 1).sum(axis=1).A.flatten()
 
     def _read_scan_buffer(self, index, scan_begin, scan_end):
         """Read a range of scans from a frame.
