@@ -142,7 +142,7 @@ extend-ignore = [
 minversion = "6.0"
 testpaths = ["tests"]
 filterwarnings = ["error"]
-addopts = "--maxfail 5 --durations=10 -rXxs
+addopts = "--maxfail 5 --durations=10 -rXxs"
 
 # https://mypy.readthedocs.io/en/stable/config_file.html
 [tool.mypy]
