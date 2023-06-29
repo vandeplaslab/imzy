@@ -56,7 +56,7 @@ dependencies = [
 # https://peps.python.org/pep-0621/#dependencies-optional-dependencies
 [project.optional-dependencies]
 test = [
-    "pytest>=6.0",
+    "pytest>=7.0",
     "pytest-cov",
 ]
 dev = [
@@ -142,6 +142,7 @@ extend-ignore = [
 minversion = "6.0"
 testpaths = ["tests"]
 filterwarnings = ["error"]
+addopts = "--maxfail 5 --durations=10 -rXxs
 
 # https://mypy.readthedocs.io/en/stable/config_file.html
 [tool.mypy]
@@ -169,7 +170,7 @@ exclude_lines = [
     "raise NotImplementedError()",
 ]
 [tool.coverage.run]
-# source = ["src"]
+source = ["src"]
 omit = [
     "tests/*",
    "*/__init__.py",

@@ -49,7 +49,7 @@ jobs:
           python -m pip install .[test,zarr,hdf5] ${{ github.event_name == 'schedule' && '--pre' || ''  }}
 
       - name: Test
-        run: pytest --color=yes --cov --cov-report=xml --cov-report=term-missing
+        run: pytest --color=yes --cov=imzy --cov-report=xml --cov-report=term-missing
 
       # If something goes wrong, we can open an issue in the repo
       - name: Report --pre Failures
