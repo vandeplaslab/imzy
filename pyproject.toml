@@ -193,7 +193,7 @@ ignore = [
   "misc/*.yml"
 ]
 ignore-bad-ideas = [
-    "src/imimspy/**/*.so",
+    "src/imzy/**/*.so",
 ]
 
 # https://python-semantic-release.readthedocs.io/en/latest/configuration.html

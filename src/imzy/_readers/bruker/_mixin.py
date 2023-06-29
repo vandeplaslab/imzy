@@ -74,7 +74,7 @@ class BrukerBaseReader(BaseReader):
         if indices is None:
             indices = self.pixels
         for index in indices:
-            yield self.mz_x, self._read_spectrum(index)
+            yield self._read_spectrum(index)
 
     def reshape(self, array: np.ndarray, fill_value: float = 0) -> np.ndarray:
         """Reshape vector of intensities."""
