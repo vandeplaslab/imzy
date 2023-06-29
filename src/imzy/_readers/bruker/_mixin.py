@@ -20,6 +20,7 @@ class BrukerBaseReader(BaseReader):
     dll = None
     handle = None
     sql_filename: str
+    _mz_x = None
 
     # DLL functions
     _dll_close_func: ty.Callable
