@@ -37,6 +37,8 @@ class BrukerBaseReader(BaseReader):
         self.conn = sqlite3.connect(self.path / self.sql_filename)
         self._mz_min, self._mz_max = self.get_acquisition_mass_range()
         self.get_region_information()
+        self.conn.close()
+        self.conn = None
 
     @property
     def mz_min(self):
