@@ -192,6 +192,9 @@ ignore = [
   "tox.ini",
   "misc/*.yml"
 ]
+ignore-bad-ideas = [
+    "src/imimspy/**/*.so",
+]
 
 # https://python-semantic-release.readthedocs.io/en/latest/configuration.html
 [tool.semantic_release]
