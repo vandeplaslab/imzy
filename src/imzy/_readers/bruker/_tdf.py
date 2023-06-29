@@ -34,7 +34,6 @@ else:
     raise Exception("Unsupported platform.")
 
 dll_path = _base_path / libname
-print(dll_path, dll_path.exists())
 if dll_path.exists():
     dll = cdll.LoadLibrary(str(dll_path))
 else:

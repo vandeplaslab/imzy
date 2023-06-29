@@ -19,6 +19,7 @@ from koyo.typing import PathLike
 
 from imzy._readers.bruker._mixin import BrukerBaseReader
 
+_base_path = Path(__file__).parent.absolute()
 if IS_WIN:
     libname = "timsdata.dll"
 elif IS_LINUX:
@@ -26,8 +27,7 @@ elif IS_LINUX:
 else:
     raise Exception("Unsupported platform.")
 
-dll_path = Path(__file__).parent.absolute() / libname
-print(dll_path, dll_path.exists())
+dll_path = _base_path / libname
 if dll_path.exists():
     dll = cdll.LoadLibrary(str(dll_path))
 else:
