@@ -2,15 +2,17 @@
 
 <div align="center">
 
-[![Python Version](https://img.shields.io/pypi/pyversions/imzy.svg)](https://pypi.org/project/imzy/)
 [![Dependencies Status](https://img.shields.io/badge/dependencies-up%20to%20date-brightgreen.svg)](https://github.com/imzy/imzy/pulls?utf8=%E2%9C%93&q=is%3Apr%20author%3Aapp%2Fdependabot)
+[![Python Version](https://img.shields.io/pypi/pyversions/imzy.svg)](https://pypi.org/project/imzy/)
+[![Python package index](https://img.shields.io/pypi/v/imzy.svg)](https://pypi.org/project/imzy)
+[![Python package index download statistics](https://img.shields.io/pypi/dm/imzy.svg)](https://pypistats.org/packages/imzy)
 
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 [![Security: bandit](https://img.shields.io/badge/security-bandit-green.svg)](https://github.com/PyCQA/bandit)
 [![Pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit&logoColor=white)](https://github.com/imzy/imzy/blob/main/.pre-commit-config.yaml)
+[![Code coverage](https://codecov.io/gh/vandeplaslab/imzy/branch/main/graph/badge.svg)](https://codecov.io/gh/vandeplaslab/imzy)
 [![Semantic Versions](https://img.shields.io/badge/%20%20%F0%9F%93%A6%F0%9F%9A%80-semantic--versions-e10079.svg)](https://github.com/imzy/imzy/releases)
 [![License](https://img.shields.io/github/license/imzy/imzy)](https://github.com/imzy/imzy/blob/main/LICENSE)
-![Coverage Report](assets/images/coverage.svg)
 
 imzy: A simple reader interface to imzML, Bruker (.tdf/.tsf) file formats
 
