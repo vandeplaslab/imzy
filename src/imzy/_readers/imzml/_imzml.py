@@ -337,7 +337,7 @@ def read_imzml_metadata(root, sl: str = "{http://psi.hupo.org/ms/mzml}"):
     return metadata_dict
 
 
-def init_metadata(path: Path, parse_lib: str = None, sl: str = "{http://psi.hupo.org/ms/mzml}"):
+def init_metadata(path: Path, parse_lib: ty.Optional[str] = None, sl: str = "{http://psi.hupo.org/ms/mzml}"):
     """Method to initialize formats, coordinates and offsets from the imzML file format.
 
     This method should only be called by __init__. Reads the data formats, coordinates and offsets from

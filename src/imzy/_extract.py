@@ -33,12 +33,12 @@ def create_centroids_zarr(
     input_dir: PathLike,
     zarr_path: PathLike,
     n_peaks: int,
-    mzs: np.ndarray = None,
-    mzs_min: np.ndarray = None,
-    mzs_max: np.ndarray = None,
+    mzs: ty.Optional[np.ndarray] = None,
+    mzs_min: ty.Optional[np.ndarray] = None,
+    mzs_max: ty.Optional[np.ndarray] = None,
     tol: float = 0,
     ppm: float = 0,
-    ys: np.ndarray = None,
+    ys: ty.Optional[np.ndarray] = None,
 ):
     """Create group with datasets inside."""
     import zarr
@@ -78,7 +78,7 @@ def extract_centroids_zarr(
     mzs_min: np.ndarray,
     mzs_max: np.ndarray,
     silent: bool = False,
-    sync_path: str = None,
+    sync_path: ty.Optional[str] = None,
 ):
     """Extract peaks for particular subset of frames."""
     import zarr
@@ -174,12 +174,12 @@ def create_centroids_hdf5(
     input_dir: PathLike,
     hdf_path: PathLike,
     n_peaks: int,
-    mzs: np.ndarray = None,
-    mzs_min: np.ndarray = None,
-    mzs_max: np.ndarray = None,
+    mzs: ty.Optional[np.ndarray] = None,
+    mzs_min: ty.Optional[np.ndarray] = None,
+    mzs_max: ty.Optional[np.ndarray] = None,
     tol: float = 0,
     ppm: float = 0,
-    ys: np.ndarray = None,
+    ys: ty.Optional[np.ndarray] = None,
     chunk_info: ty.Optional[ty.Dict[int, np.ndarray]] = None,
 ):
     """Create group with datasets inside."""

@@ -126,7 +126,7 @@ class BaseReader:
         return self._tic
 
     def get_ion_image(
-        self, mz: float, tol: float = None, ppm: float = None, fill_value: float = np.nan, silent: bool = False
+        self, mz: float, tol: ty.Optional[float] = None, ppm: ty.Optional[float] = None, fill_value: float = np.nan, silent: bool = False
     ) -> np.ndarray:
         """Return ion image for specified m/z with tolerance or ppm."""
         if tol is None and ppm is None or tol == 0 and ppm == 0:
@@ -150,8 +150,8 @@ class BaseReader:
     def _get_ions(
         self,
         mzs: ty.Iterable[float],
-        tol: float = None,
-        ppm: float = None,
+        tol: ty.Optional[float] = None,
+        ppm: ty.Optional[float] = None,
         fill_value: float = np.nan,
         silent: bool = False,
     ):
@@ -172,8 +172,8 @@ class BaseReader:
     def get_ion_images(
         self,
         mzs: ty.Iterable[float],
-        tol: float = None,
-        ppm: float = None,
+        tol: ty.Optional[float] = None,
+        ppm: ty.Optional[float] = None,
         fill_value: float = np.nan,
         silent: bool = False,
     ) -> np.ndarray:
@@ -184,8 +184,8 @@ class BaseReader:
     def to_table(
         self,
         mzs: ty.Iterable[float],
-        tol: float = None,
-        ppm: float = None,
+        tol: ty.Optional[float] = None,
+        ppm: ty.Optional[float] = None,
         fill_value: float = np.nan,
         silent: bool = False,
     ):
@@ -196,8 +196,8 @@ class BaseReader:
         self,
         zarr_path: PathLike,
         mzs: ty.Iterable[float],
-        tol: float = None,
-        ppm: float = None,
+        tol: ty.Optional[float] = None,
+        ppm: ty.Optional[float] = None,
         as_flat: bool = True,
         chunk_size: ty.Optional[ty.Tuple[int, int]] = None,
         silent: bool = False,
@@ -250,8 +250,8 @@ class BaseReader:
         self,
         hdf_path: PathLike,
         mzs: ty.Iterable[float],
-        tol: float = None,
-        ppm: float = None,
+        tol: ty.Optional[float] = None,
+        ppm: ty.Optional[float] = None,
         as_flat: bool = True,
         max_mem: float = 512,  # mb
         silent: bool = False,

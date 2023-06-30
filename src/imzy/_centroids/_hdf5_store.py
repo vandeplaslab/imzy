@@ -116,12 +116,12 @@ class H5CentroidsStore(BaseCentroids):
         with self.lazy_peaks() as peaks:
             return peaks[:, indices]
 
-    def update(self, array: np.ndarray, framelist: np.ndarray, chunk_id: int = None):
+    def update(self, array: np.ndarray, framelist: np.ndarray, chunk_id: ty.Optional[int] = None):
         """Update array."""
         if self.is_chunked:
             # TODO: check size of the array against the size of the chunk
             with self.open() as h5:
-                h5[f"{self.PEAKS_KEY}/{str(chunk_id)}"][:] = array
+                h5[f"{self.PEAKS_KEY}/{chunk_id!s}"][:] = array
                 h5.flush()
         else:
             with self.open() as h5:
@@ -129,7 +129,7 @@ class H5CentroidsStore(BaseCentroids):
                 h5.flush()
 
     @contextmanager
-    def open(self, mode: str = None):
+    def open(self, mode: ty.Optional[str] = None):
         """Safely open storage."""
         if mode is None:
             mode = self.mode
@@ -244,7 +244,7 @@ class LazyPeaksProxy:
         chunk_info = self.obj.chunk_info
         with self.obj.open("r") as h5:
             for chunk_id in chunk_info:
-                yield h5[f"{self.obj.PEAKS_KEY}/{str(chunk_id)}"]
+                yield h5[f"{self.obj.PEAKS_KEY}/{chunk_id!s}"]
 
     def peaks(self):
         """Dense version which is very inefficient."""
