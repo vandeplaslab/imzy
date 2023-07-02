@@ -1,9 +1,7 @@
 """Base class for file readers."""
-import os
 import sqlite3
 import typing as ty
 from ctypes import POINTER, c_double
-from pathlib import Path
 
 import numpy as np
 from koyo.typing import PathLike
@@ -111,9 +109,8 @@ class BrukerBaseReader(BaseReader):
     def sql_reader(self):
         """SQL reader context manager."""
         conn = sqlite3.connect(self.path / self.sql_filename)
-        yield
+        yield conn
         conn.close()
-
 
     def close(self):
         """Close file."""
@@ -228,47 +225,29 @@ class BrukerBaseReader(BaseReader):
         self.x_size = x_max - x_min + 1
         self.y_size = y_max - y_min + 1
 
-    def _write_cache(self, filename: str, data: ty.Dict):
-        """Loading of SQL data can be very slow for some datasets so we can cache it instead.
 
-        We write some of the metadata to a cache directory that will be located inside of the `Bruker .d` folder.
+    def get_tic(self) -> np.ndarray:
+        """Get TIC data."""
 
-        Parameters
-        ----------
-        filename : str
-            name of the cache file without the .npz suffix
-        data : dict
-            dictionary containing cache data
-        """
-        cache_dir_path = Path(self.path) / ".icache"
-        cache_dir_path.mkdir(exist_ok=True)
-        _filename = cache_dir_path / (filename + ".tmp.npz")
-        filename = cache_dir_path / (filename + ".npz")
-        np.savez(_filename, **data)
-        try:
-            _filename.rename(filename)
-        except OSError:
-            os.remove(filename)
-            _filename.rename(filename)
-
-    def _read_cache(self, filename: str, keys: ty.List[str]):
-        """Load cache metadata.
-
-        Parameters
-        ----------
-        filename : str
-            name of the cache file without the .npz suffix
-        keys : list
-            list of keys to be read when cache file is loaded
-        """
-        cache_file_path = Path(self.path) / ".icache" / (filename + ".npz")
-
-        data = {}.fromkeys(keys)
-        if os.path.exists(cache_file_path):
-            with np.load(cache_file_path, mmap_mode="r") as f_ptr:
-                for key in keys:
+        if self._tic is None:
+            data = self._read_cache("tic", ["tic", "region_frames"])
+            if data["tic"] is not None and not isinstance(data["region_frames"], str):
+                tic = data["tic"]
+            else:
+                with self.sql_reader() as conn:
                     try:
-                        data[key] = f_ptr[key]
-                    except KeyError:
-                        data[key] = "N/A"
-        return data
+                        cursor = conn.execute(
+                            f"SELECT SummedIntensities, RegionNumber FROM Spectra"
+                        )
+                        tic_data = np.array(cursor.fetchall())
+                        region_frames = tic_data[:, 1]
+                        tic = tic_data[:, 0]
+                    except sqlite3.OperationalError:
+                        # this is required to handle TSF files (and maybe TDF?)
+                        cursor = conn.execute(f"SELECT RegionNumber FROM MaldiFrameInfo")
+                        region_frames = np.array(cursor.fetchall())
+                        cursor = conn.execute(f"SELECT SummedIntensities FROM Frames")
+                        tic = np.array(cursor.fetchall())
+                self._write_cache("tic", data={"tic": tic, "region_frames": region_frames})
+            self._tic = tic
+        return self._tic

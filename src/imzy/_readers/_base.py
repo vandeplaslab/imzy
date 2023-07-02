@@ -1,6 +1,7 @@
 """Base reader."""
 import typing as ty
 from pathlib import Path
+import os
 
 import numpy as np
 from koyo.spectrum import find_between_batch, find_between_ppm, find_between_tol, get_mzs_for_tol
@@ -107,7 +108,7 @@ class BaseReader:
     def n_pixels(self):
         """Return the total number of pixels in the dataset."""
         return len(self.x_coordinates)
-
+    
     def get_chromatogram(self, indices: ty.Iterable[int]):
         """Return chromatogram."""
         indices = np.asarray(indices)
@@ -309,3 +310,48 @@ class BaseReader:
         yield from tqdm(
             self._read_spectra(indices), total=len(indices), disable=silent, miniters=500, desc="Iterating spectra..."
         )
+
+    def _write_cache(self, filename: str, data: ty.Dict):
+        """Loading of SQL data can be very slow for some datasets so we can cache it instead.
+
+        We write some of the metadata to a cache directory that will be located inside of the `Bruker .d` folder.
+
+        Parameters
+        ----------
+        filename : str
+            name of the cache file without the .npz suffix
+        data : dict
+            dictionary containing cache data
+        """
+        cache_dir_path = Path(self.path) / ".icache"
+        cache_dir_path.mkdir(exist_ok=True)
+        _filename = cache_dir_path / (filename + ".tmp.npz")
+        filename = cache_dir_path / (filename + ".npz")
+        np.savez(_filename, **data)
+        try:
+            _filename.rename(filename)
+        except OSError:
+            os.remove(filename)
+            _filename.rename(filename)
+
+    def _read_cache(self, filename: str, keys: ty.List[str]):
+        """Load cache metadata.
+
+        Parameters
+        ----------
+        filename : str
+            name of the cache file without the .npz suffix
+        keys : list
+            list of keys to be read when cache file is loaded
+        """
+        cache_file_path = Path(self.path) / ".icache" / (filename + ".npz")
+
+        data = {}.fromkeys(keys)
+        if os.path.exists(cache_file_path):
+            with np.load(cache_file_path, mmap_mode="r") as f_ptr:
+                for key in keys:
+                    try:
+                        data[key] = f_ptr[key]
+                    except KeyError:
+                        data[key] = None
+        return data
