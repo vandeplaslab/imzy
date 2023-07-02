@@ -9,6 +9,7 @@ import numpy as np
 from koyo.typing import PathLike
 from koyo.utilities import get_min_max
 from tqdm.auto import tqdm
+from contextlib import contextmanager
 
 from imzy._readers._base import BaseReader
 
@@ -34,11 +35,8 @@ class BrukerBaseReader(BaseReader):
     def _init(self):
         """Extra initialization."""
         assert (self.path / self.sql_filename).exists(), f"Could not find {self.sql_filename} file."
-        self.conn = sqlite3.connect(self.path / self.sql_filename)
         self._mz_min, self._mz_max = self.get_acquisition_mass_range()
         self.get_region_information()
-        self.conn.close()
-        self.conn = None
 
     @property
     def mz_min(self):
@@ -109,14 +107,19 @@ class BrukerBaseReader(BaseReader):
     def __del__(self):
         self.close()
 
+    @contextmanager
+    def sql_reader(self):
+        """SQL reader context manager."""
+        conn = sqlite3.connect(self.path / self.sql_filename)
+        yield
+        conn.close()
+
+
     def close(self):
         """Close file."""
         if hasattr(self, "handle") and self.handle is not None:
             self._dll_close_func(self.handle)
             self.handle = None
-        if hasattr(self, "conn") and self.conn is not None:
-            self.conn.close()
-            self.conn = None
 
     def _call_conversion_func(self, frame_id, input_data, func):
         raise NotImplementedError("Must implement method")
@@ -167,14 +170,16 @@ class BrukerBaseReader(BaseReader):
 
     def get_n_pixels(self):
         """Retrieve number of frames from the file."""
-        q = self.conn.execute("SELECT Max(Frame) FROM MaldiFrameInfo")
-        n_frames = q.fetchone()
+        with self.sql_reader() as conn:
+            q = conn.execute("SELECT Max(Frame) FROM MaldiFrameInfo")
+            n_frames = q.fetchone()
         return n_frames[0]
 
     def get_acquisition_mass_range(self) -> ty.Tuple[float, float]:
         """Retrieve acquisition mass range from the file."""
-        cursor = self.conn.execute("SELECT Key, Value FROM GlobalMetadata")
-        fetch_all = cursor.fetchall()
+        with self.sql_reader() as conn:
+            cursor = conn.execute("SELECT Key, Value FROM GlobalMetadata")
+            fetch_all = cursor.fetchall()
         mz_min, mz_max = None, None
         for key, value in fetch_all:
             if key == "MzAcqRangeLower":
@@ -194,9 +199,10 @@ class BrukerBaseReader(BaseReader):
         if data["frame_index_position"] is not None:
             frame_index_position = data["frame_index_position"]
         else:
-            cursor = self.conn.cursor()
-            cursor.execute("SELECT Frame, XIndexPos, YIndexPos, RegionNumber FROM MaldiFrameInfo")
-            frame_index_position = np.array(cursor.fetchall())
+            with self.sql_reader() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT Frame, XIndexPos, YIndexPos, RegionNumber FROM MaldiFrameInfo")
+                frame_index_position = np.array(cursor.fetchall())
             self._write_cache("frame_index_cache", data={"frame_index_position": frame_index_position})
 
         # get ROI

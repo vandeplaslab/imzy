@@ -278,78 +278,6 @@ class TDFReader(BrukerBaseReader):
     #         result.append((indices, intensities))
     #     return result
 
-    # # read some peak-picked MS/MS spectra for a given list of precursors; returns a dict mapping
-    # # 'precursor_id' to a pair of arrays (mz_values, area_values).
-    # def read_pasef_msms(self, precursor_list):
-    #     precursors_for_dll = np.array(precursor_list, dtype=np.int64)
-
-    #     result = {}
-
-    #     @MSMS_SPECTRUM_FUNCTOR
-    #     def callback_for_dll(precursor_id, num_peaks, mz_values, area_values):
-    #         result[precursor_id] = (mz_values[0:num_peaks], area_values[0:num_peaks])
-
-    #     rc = self.dll.tims_read_pasef_msms(
-    #         self.handle, precursors_for_dll.ctypes.data_as(POINTER(c_int64)), len(precursor_list), callback_for_dll
-    #     )
-
-    #     if rc == 0:
-    #         _throw_last_error(self.dll)
-
-    #     return result
-
-    # # read peak-picked MS/MS spectra for a given frame; returns a dict mapping
-    # # 'precursor_id' to a pair of arrays (mz_values, area_values).
-    # def read_pasef_msms_for_frame(self, index):
-    #     result = {}
-
-    #     @MSMS_SPECTRUM_FUNCTOR
-    #     def callback_for_dll(precursor_id, num_peaks, mz_values, area_values):
-    #         result[precursor_id] = (mz_values[0:num_peaks], area_values[0:num_peaks])
-
-    #     rc = self.dll.tims_read_pasef_msms_for_frame(self.handle, index, callback_for_dll)
-
-    #     if rc == 0:
-    #         _throw_last_error(self.dll)
-
-    #     return result
-
-    # # read some "quasi profile" MS/MS spectra for a given list of precursors; returns a dict mapping
-    # # 'precursor_id' to the profil arrays (intensity_values).
-    # def read_pasef_profile_msms(self, precursor_list):
-    #     precursors_for_dll = np.array(precursor_list, dtype=np.int64)
-
-    #     result = {}
-
-    #     @MSMS_PROFILE_SPECTRUM_FUNCTOR
-    #     def callback_for_dll(precursor_id, num_points, intensity_values):
-    #         result[precursor_id] = intensity_values[0:num_points]
-
-    #     rc = self.dll.tims_read_pasef_profile_msms(
-    #         self.handle, precursors_for_dll.ctypes.data_as(POINTER(c_int64)), len(precursor_list), callback_for_dll
-    #     )
-
-    #     if rc == 0:
-    #         _throw_last_error(self.dll)
-
-    #     return result
-
-    # # read "quasi profile" MS/MS spectra for a given frame; returns a dict mapping
-    # # 'precursor_id' to the profil arrays (intensity_values).
-    # def read_pasef_profile_msms_for_frame(self, index):
-    #     result = {}
-
-    #     @MSMS_PROFILE_SPECTRUM_FUNCTOR
-    #     def callback_for_dll(precursor_id, num_points, intensity_values):
-    #         result[precursor_id] = intensity_values[0:num_points]
-
-    #     rc = self.dll.tims_read_pasef_profile_msms_for_frame(self.handle, index, callback_for_dll)
-
-    #     if rc == 0:
-    #         _throw_last_error(self.dll)
-
-    #     return result
-
     # # read peak-picked spectra for a tims frame;
     # # returns a pair of arrays (mz_values, area_values).
     # def extract_centroid_spectrum_for_frame(self, index, scan_begin, scan_end, peak_picker_resolution=None):
@@ -371,83 +299,18 @@ class TDFReader(BrukerBaseReader):
 
     #     if rc == 0:
     #         _throw_last_error(self.dll)
-
     #     return result
-
-    # # read "quasi profile" spectra for a tims frame;
-    # # returns the profil array (intensity_values).
-    # def extract_profile_for_frame(self, index, scan_begin, scan_end):
-    #     result = None
-
-    #     @MSMS_PROFILE_SPECTRUM_FUNCTOR
-    #     def callback_for_dll(precursor_id, num_points, intensity_values):
-    #         nonlocal result
-    #         result = intensity_values[0:num_points]
-
-    #     rc = self.dll.tims_extract_profile_for_frame(
-    #         self.handle, index, scan_begin, scan_end, callback_for_dll, None
-    #     )  # python dos not need the additional context, we have nonlocal
-
-    #     if rc == 0:
-    #         _throw_last_error(self.dll)
-
-    #     return result
-
-    # def extract_chromatograms(self, jobs, trace_sink):
-    #     """Efficiently extract several MS1-only extracted-ion chromatograms.
-
-    #     The argument 'jobs' defines which chromatograms are to be extracted; it must be an iterator
-    #     (generator) object producing a stream of ChromatogramJob objects. The jobs must be produced
-    #     in the order of ascending 'time_begin'.
-
-    #     The function 'trace_sink' is called for each extracted trace with three arguments: job ID,
-    #     numpy array of frame IDs ("x axis"), numpy array of chromatogram values ("y axis").
-
-    #     For more information, see the documentation of the C-language API of the timsdata DLL.
-
-    #     """
-
-    #     @CHROMATOGRAM_JOB_GENERATOR
-    #     def wrap_gen(job, user_data):
-    #         try:
-    #             job[0] = next(jobs)
-    #             return 1
-    #         except StopIteration:
-    #             return 2
-    #         except Exception as e:
-    #             # TODO: instead of printing this here, let extractChromatograms throw this
-    #             print("extractChromatograms: generator produced exception ", e)
-    #             return 0
-
-    #     @CHROMATOGRAM_TRACE_SINK
-    #     def wrap_sink(job_id, num_points, frame_ids, values, user_data):
-    #         try:
-    #             trace_sink(
-    #                 job_id,
-    #                 np.array(frame_ids[0:num_points], dtype=np.int64),
-    #                 np.array(values[0:num_points], dtype=np.uint64),
-    #             )
-    #             return 1
-    #         except Exception as e:
-    #             # TODO: instead of printing this here, let extractChromatograms throw this
-    #             print("extractChromatograms: sink produced exception ", e)
-    #             return 0
-
-    #     unused_user_data = 0
-    #     rc = self.dll.tims_extract_chromatograms(self.handle, wrap_gen, wrap_sink, unused_user_data)
-
-    #     if rc == 0:
-    #         _throw_last_error(self.dll)
 
     def get_n_mobility_bins(self, quick: bool = True) -> int:
         """Get the number of ion mobility bins in the file."""
-        tims_db_cursor = self.conn.cursor()
-        tims_db_cursor.execute("SELECT Distinct(NumScans) FROM Frames")
-        if quick:
-            n_dt_bins = tims_db_cursor.fetchone()[0]
-        else:
-            n_dt_bins = tims_db_cursor.fetchall()
-            if len(n_dt_bins) > 1:
-                raise ValueError("Number of mobility bins is not consistent amongst all frames")
-            n_dt_bins = n_dt_bins[0][0]
+        with self.sql_reader() as conn:
+            tims_db_cursor = conn.cursor()
+            tims_db_cursor.execute("SELECT Distinct(NumScans) FROM Frames")
+            if quick:
+                n_dt_bins = tims_db_cursor.fetchone()[0]
+            else:
+                n_dt_bins = tims_db_cursor.fetchall()
+                if len(n_dt_bins) > 1:
+                    raise ValueError("Number of mobility bins is not consistent amongst all frames")
+                n_dt_bins = n_dt_bins[0][0]
         return n_dt_bins
