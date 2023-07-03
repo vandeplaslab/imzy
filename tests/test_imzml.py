@@ -23,6 +23,10 @@ def test_init(path):
     # get tic
     tic = reader.get_tic()
     assert len(tic) == reader.n_pixels
+    assert tic.ndim == 1
+    assert len(tic) == reader.n_pixels
+    tic_2d = reader.reshape(tic)
+    assert tic_2d.ndim == 2
 
     # get image
     image = reader.get_ion_image(500, tol=0.5)

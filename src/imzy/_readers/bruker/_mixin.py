@@ -248,6 +248,7 @@ class BrukerBaseReader(BaseReader):
                         region_frames = np.array(cursor.fetchall())
                         cursor = conn.execute(f"SELECT SummedIntensities FROM Frames")
                         tic = np.array(cursor.fetchall())
+                    tic = np.ravel(tic)
                 self._write_cache("tic", data={"tic": tic, "region_frames": region_frames})
             self._tic = tic
         return self._tic
