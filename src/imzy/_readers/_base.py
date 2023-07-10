@@ -118,6 +118,7 @@ class BaseReader:
     def x_pixel_size(self) -> float:
         """Return x pixel size in micrometers."""
         raise NotImplementedError("Must implement method")
+
     @property
     def y_pixel_size(self) -> float:
         """Return y pixel size in micrometers."""

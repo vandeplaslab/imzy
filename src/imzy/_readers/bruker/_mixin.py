@@ -256,7 +256,6 @@ class BrukerBaseReader(BaseReader):
         self.x_size = x_max - x_min + 1
         self.y_size = y_max - y_min + 1
 
-
     def get_tic(self) -> np.ndarray:
         """Get TIC data."""
         if self._tic is None:
@@ -266,9 +265,7 @@ class BrukerBaseReader(BaseReader):
             else:
                 with self.sql_reader() as conn:
                     try:
-                        cursor = conn.execute(
-                            "SELECT SummedIntensities, RegionNumber FROM Spectra"
-                        )
+                        cursor = conn.execute("SELECT SummedIntensities, RegionNumber FROM Spectra")
                         tic_data = np.array(cursor.fetchall())
                         region_frames = tic_data[:, 1]
                         tic = tic_data[:, 0]

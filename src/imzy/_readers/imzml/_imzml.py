@@ -135,6 +135,7 @@ class IMZMLReader(BaseReader):
     def x_pixel_size(self) -> float:
         """Return x pixel size in micrometers."""
         return self.metadata.PX_SIZE_X
+
     @property
     def y_pixel_size(self) -> float:
         """Return y pixel size in micrometers."""
