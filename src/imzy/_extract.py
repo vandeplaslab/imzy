@@ -165,7 +165,7 @@ def get_chunk_info(n_pixels: int, n_peaks: int, max_mem: float = 512) -> ty.Dict
     """Get chunk size information for particular dataset."""
     import math
 
-    _max_mem = (float(n_pixels) * n_peaks * 4) / (1024**2)  # assume 4 bytes per element
+    _max_mem = (float(n_pixels) * n_peaks * 4) / (1024 ** 2)  # assume 4 bytes per element
     n_tasks = math.ceil(_max_mem / max_mem) or 1
     return dict(enumerate(list(chunks(np.arange(n_pixels), n_tasks=n_tasks))))
 

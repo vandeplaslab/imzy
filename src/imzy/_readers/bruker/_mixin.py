@@ -1,13 +1,13 @@
 """Base class for file readers."""
 import sqlite3
 import typing as ty
+from contextlib import contextmanager
 from ctypes import POINTER, c_double
 
 import numpy as np
 from koyo.typing import PathLike
 from koyo.utilities import get_min_max
 from tqdm.auto import tqdm
-from contextlib import contextmanager
 
 from imzy._readers._base import BaseReader
 
@@ -20,6 +20,8 @@ class BrukerBaseReader(BaseReader):
     handle = None
     sql_filename: str
     _mz_x = None
+    _rois = None
+    _pixel_size = None
 
     # DLL functions
     _dll_close_func: ty.Callable
@@ -45,6 +47,35 @@ class BrukerBaseReader(BaseReader):
     def mz_max(self):
         """Return maximum m/z value."""
         return self._mz_max
+
+    @property
+    def rois(self) -> ty.List[int]:
+        """Return list of ROIs."""
+        if self._rois is None:
+            self._rois = np.unique(self.region_number).tolist()
+        return self._rois
+
+    @property
+    def x_pixel_size(self) -> float:
+        """Return x pixel size in micrometers."""
+        return self.pixel_size
+
+    @property
+    def y_pixel_size(self) -> float:
+        """Return y pixel size in micrometers."""
+        return self.pixel_size
+
+    @property
+    def pixel_size(self) -> float:
+        """Return pixel size.
+
+        This method will throw an error if the pixel size is not equal in both dimensions.
+        """
+        if self._pixel_size is None:
+            with self.sql_reader() as conn:
+                cursor = conn.execute("SELECT SpotSize FROM MaldiFrameLaserInfo")
+                self._pixel_size = float(cursor.fetchone()[0])
+        return self._pixel_size
 
     @property
     def is_centroid(self) -> bool:
@@ -228,7 +259,6 @@ class BrukerBaseReader(BaseReader):
 
     def get_tic(self) -> np.ndarray:
         """Get TIC data."""
-
         if self._tic is None:
             data = self._read_cache("tic", ["tic", "region_frames"])
             if data["tic"] is not None and not isinstance(data["region_frames"], str):
@@ -237,16 +267,16 @@ class BrukerBaseReader(BaseReader):
                 with self.sql_reader() as conn:
                     try:
                         cursor = conn.execute(
-                            f"SELECT SummedIntensities, RegionNumber FROM Spectra"
+                            "SELECT SummedIntensities, RegionNumber FROM Spectra"
                         )
                         tic_data = np.array(cursor.fetchall())
                         region_frames = tic_data[:, 1]
                         tic = tic_data[:, 0]
                     except sqlite3.OperationalError:
                         # this is required to handle TSF files (and maybe TDF?)
-                        cursor = conn.execute(f"SELECT RegionNumber FROM MaldiFrameInfo")
+                        cursor = conn.execute("SELECT RegionNumber FROM MaldiFrameInfo")
                         region_frames = np.array(cursor.fetchall())
-                        cursor = conn.execute(f"SELECT SummedIntensities FROM Frames")
+                        cursor = conn.execute("SELECT SummedIntensities FROM Frames")
                         tic = np.array(cursor.fetchall())
                     tic = np.ravel(tic)
                 self._write_cache("tic", data={"tic": tic, "region_frames": region_frames})

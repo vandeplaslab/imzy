@@ -1,7 +1,7 @@
 """Base reader."""
+import os
 import typing as ty
 from pathlib import Path
-import os
 
 import numpy as np
 from koyo.spectrum import find_between_batch, find_between_ppm, find_between_tol, get_mzs_for_tol
@@ -108,7 +108,31 @@ class BaseReader:
     def n_pixels(self):
         """Return the total number of pixels in the dataset."""
         return len(self.x_coordinates)
-    
+
+    @property
+    def rois(self) -> ty.List[int]:
+        """Return list of ROIs."""
+        raise NotImplementedError("Must implement method")
+
+    @property
+    def x_pixel_size(self) -> float:
+        """Return x pixel size in micrometers."""
+        raise NotImplementedError("Must implement method")
+    @property
+    def y_pixel_size(self) -> float:
+        """Return y pixel size in micrometers."""
+        raise NotImplementedError("Must implement method")
+
+    @property
+    def pixel_size(self) -> float:
+        """Return pixel size.
+
+        This method will throw an error if the pixel size is not equal in both dimensions.
+        """
+        if self.x_pixel_size != self.y_pixel_size:
+            raise ValueError("Pixel size is not equal in both dimensions.")
+        return self.x_pixel_size
+
     def get_chromatogram(self, indices: ty.Iterable[int]):
         """Return chromatogram."""
         indices = np.asarray(indices)
@@ -127,7 +151,12 @@ class BaseReader:
         return self._tic
 
     def get_ion_image(
-        self, mz: float, tol: ty.Optional[float] = None, ppm: ty.Optional[float] = None, fill_value: float = np.nan, silent: bool = False
+        self,
+        mz: float,
+        tol: ty.Optional[float] = None,
+        ppm: ty.Optional[float] = None,
+        fill_value: float = np.nan,
+        silent: bool = False,
     ) -> np.ndarray:
         """Return ion image for specified m/z with tolerance or ppm."""
         if tol is None and ppm is None or tol == 0 and ppm == 0:

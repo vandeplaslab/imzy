@@ -22,6 +22,12 @@ def test_init(path):
     x, y = reader[1]
     assert x.shape == y.shape
 
+    # get ROIs
+    assert reader.rois == [0]
+
+    # get pixel size
+    assert reader.pixel_size == reader.x_pixel_size == reader.y_pixel_size
+
     # get tic
     tic = reader.get_tic()
     assert tic.ndim == 1

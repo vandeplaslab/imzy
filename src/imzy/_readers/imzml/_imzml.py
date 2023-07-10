@@ -114,6 +114,11 @@ class IMZMLReader(BaseReader):
         return self._imzml_cache
 
     @property
+    def rois(self) -> ty.List[int]:
+        """Return list of ROI indices."""
+        return [0]  # imzML files always have single ROI
+
+    @property
     def is_centroid(self) -> bool:
         """Flag to indicate whether data is in centroid or profile mode."""
         if self._is_centroid is None:
@@ -125,6 +130,25 @@ class IMZMLReader(BaseReader):
             if self._is_centroid is None:
                 self._is_centroid = False
         return self._is_centroid
+
+    @property
+    def x_pixel_size(self) -> float:
+        """Return x pixel size in micrometers."""
+        return self.metadata.PX_SIZE_X
+    @property
+    def y_pixel_size(self) -> float:
+        """Return y pixel size in micrometers."""
+        return self.metadata.PX_SIZE_Y
+
+    @property
+    def pixel_size(self) -> float:
+        """Return pixel size.
+
+        This method will throw an error if the pixel size is not equal in both dimensions.
+        """
+        if self.x_pixel_size != self.y_pixel_size:
+            raise ValueError("Pixel size is not equal in both dimensions.")
+        return self.x_pixel_size
 
     def get_physical_coordinates(self, index: int):
         """For a pixel index i, return real-world coordinates in micrometers.
@@ -390,7 +414,7 @@ def fix_offsets(offsets):
         for values in offsets:
             value = values[index]
             if value < 0 <= prev_value:
-                delta += 2**32
+                delta += 2 ** 32
             values[index] = value + delta
             prev_value = value
 
