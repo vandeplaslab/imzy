@@ -2,6 +2,7 @@
 import os
 import typing as ty
 from pathlib import Path
+from contextlib import suppress
 
 import numpy as np
 from koyo.spectrum import find_between_batch, find_between_ppm, find_between_tol, get_mzs_for_tol
@@ -361,7 +362,8 @@ class BaseReader:
         try:
             _filename.rename(filename)
         except OSError:
-            os.remove(filename)
+            with suppress(FileNotFoundError):
+                os.remove(filename)
             _filename.rename(filename)
 
     def _read_cache(self, filename: str, keys: ty.List[str]):
