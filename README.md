@@ -81,7 +81,7 @@ def imzy_reader(path: str, **kwargs) -> ty.Optional[YourReader]:
 
 In the `pyproject.toml` file, please define the interface:
 ```toml
-[options.entry_points."imzy"]
+[options.entry_points."imzy.plugins"]
 your_project_name = "your_project_name.imzy"
 ```
 
