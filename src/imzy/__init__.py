@@ -22,19 +22,11 @@ def discover_plugins():
     """Initialize plugins."""
     global _plugin_manager
 
-
     if _plugin_manager is None:
         from imzy.plugins import ImzyPluginManager
 
         _plugin_manager = ImzyPluginManager()
     return _plugin_manager
-
-
-@property
-@lru_cache
-def plugin_manager():
-    """Return instance of plugin manager."""
-    return discover_plugins()
 
 
 __version__: str = get_version()

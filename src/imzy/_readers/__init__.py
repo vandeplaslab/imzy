@@ -30,5 +30,5 @@ def get_reader(path: PathLike, **kwargs) -> BaseReader:
     import imzy
 
     path = Path(path)
-    pm = imzy.plugin_manager
+    pm = imzy.discover_plugins()
     return pm.get_reader(path, **kwargs)
