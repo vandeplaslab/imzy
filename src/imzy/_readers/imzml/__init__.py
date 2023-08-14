@@ -1,2 +1,4 @@
 """Init."""
-from imzy._readers.imzml._imzml import IMZMLReader  # noqa: F401
+from imzy._readers.imzml._imzml import IMZMLReader, is_imzml
+
+__all__ = ["IMZMLReader", "is_imzml"]

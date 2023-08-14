@@ -29,6 +29,8 @@ Analyse your data
 import numpy as np
 from imzy import get_reader
 
+PATH_TO_FILE = "path/to/file"
+
 # we currently support imzML, Bruker .d (.tsf/.tdf) formats
 reader = get_reader(PATH_TO_FILE)
 # will extract mass spectrum for pixel index '0'
@@ -49,6 +51,43 @@ image = reader.get_ion_image(885.549, ppm=10)
 mzs = [...] # list of m/zs to extract
 images = reader.get_ion_images(mzs, tol=0.05)
 ```
+
+## Supported formats
+- imzML on Windows, macOS and Linux
+- Bruker (.tdf/.tsf) on Windows and Linux
+
+
+## Plugins
+
+It is now possible to create your own readers by implementing the `imzy.hookspec` interface. This allows you to create
+your own readers for any format you want. You can then register your reader with imzy by adding the following to your
+`setup.py` or `pyproject.toml` or `setup.cfg` file:
+
+If you have project named `your_project_name`, you could add a file `imzy.py` to your project with the following code:
+
+```python
+from imzy import BaseReader
+from imzy.hookspec import hook_impl
+
+class YourReader(BaseReader):
+  """Your reader class."""
+  
+
+@hook_impl
+def imzy_reader(path: str, **kwargs) -> ty.Optional[YourReader]:
+    """Return YourReader if path is valid."""
+    ...
+```
+
+In the `pyproject.toml` file, please define the interface:
+```toml
+[options.entry_points."imzy"]
+your_project_name = "your_project_name.imzy"
+```
+
+Your reader will be automatically detected when the `ImzyPluginManager` is initialized, which happens when the
+`get_reader` function is called. You can then use your reader as follows:
+
 
 ## Planned features
 - add functionality to readers

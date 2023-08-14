@@ -9,6 +9,7 @@ from tqdm.auto import tqdm
 
 from imzy._readers._base import BaseReader
 from imzy._readers.imzml._ontology import get_cv_param
+from imzy.hookspec import hook_impl
 
 PRECISION_DICT = {"32-bit float": "f", "64-bit float": "d", "32-bit integer": "i", "64-bit integer": "l"}
 SIZE_DICT = {"f": 4, "d": 8, "i": 4, "l": 8}
@@ -141,16 +142,6 @@ class IMZMLReader(BaseReader):
         """Return y pixel size in micrometers."""
         return self.metadata.PX_SIZE_Y
 
-    @property
-    def pixel_size(self) -> float:
-        """Return pixel size.
-
-        This method will throw an error if the pixel size is not equal in both dimensions.
-        """
-        if self.x_pixel_size != self.y_pixel_size:
-            raise ValueError("Pixel size is not equal in both dimensions.")
-        return self.x_pixel_size
-
     def get_physical_coordinates(self, index: int):
         """For a pixel index i, return real-world coordinates in micrometers.
 
@@ -158,11 +149,6 @@ class IMZMLReader(BaseReader):
         """
         x, y, _ = self.xyz_coordinates[index]
         return x * self.metadata.PX_SIZE_X, y * self.metadata.PX_SIZE_Y
-
-    @property
-    def image_shape(self) -> ty.Tuple[int, int]:
-        """Return shape of the image."""
-        return self.metadata.PX_MAX_Y, self.metadata.PX_MAX_X
 
     def reshape(self, array: np.ndarray, fill_value: float = 0) -> np.ndarray:
         """Reshape vector of intensities."""
@@ -533,3 +519,17 @@ def write_icache(obj: IMZMLReader, path: Path):
     # unfortunately, numpy automatically adds the .npz extension which might not be desirable, so we might as well
     # rename it to the .icache
     npz_path.rename(path)
+
+
+def is_imzml(path: PathLike) -> bool:
+    """Check if path is imzml."""
+    path = Path(path)
+    return path.suffix.lower() == ".imzml"
+
+
+@hook_impl
+def imzy_reader(path: PathLike, **kwargs) -> ty.Optional[IMZMLReader]:
+    """Return TDFReader if path is Bruker .d/tdf."""
+    if is_imzml(path):
+        return IMZMLReader(path, **kwargs)
+    return None

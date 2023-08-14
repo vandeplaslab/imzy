@@ -105,28 +105,6 @@ class BrukerBaseReader(BaseReader):
         for index in indices:
             yield self._read_spectrum(index)
 
-    def reshape(self, array: np.ndarray, fill_value: float = 0) -> np.ndarray:
-        """Reshape vector of intensities."""
-        if len(array) != self.n_pixels:
-            raise ValueError("Wrong size and shape of the array.")
-        dtype = np.float32 if np.isnan(fill_value) else array.dtype
-        im = np.full((self.y_size, self.x_size), fill_value=fill_value, dtype=dtype)
-        im[self.y_coordinates, self.x_coordinates] = array
-        return im
-
-    def reshape_batch(self, array: np.ndarray, fill_value: float = 0) -> np.ndarray:
-        """Batch reshaping of images."""
-        if array.ndim != 2:
-            raise ValueError("Expected 2-D array.")
-        if len(array) != self.n_pixels:
-            raise ValueError("Wrong size and shape of the array.")
-        n = array.shape[1]
-        dtype = np.float32 if np.isnan(fill_value) else array.dtype
-        im = np.full((n, self.y_size, self.x_size), fill_value=fill_value, dtype=dtype)
-        for i in range(n):
-            im[i, self.y_coordinates, self.x_coordinates] = array[:, i]
-        return im
-
     def __enter__(self):
         return self
 
@@ -253,8 +231,6 @@ class BrukerBaseReader(BaseReader):
         x_coordinates = x_coordinates - x_min
         y_coordinates = y_coordinates - y_min
         self._xyz_coordinates = np.column_stack((x_coordinates, y_coordinates, np.zeros_like(x_coordinates)))
-        self.x_size = x_max - x_min + 1
-        self.y_size = y_max - y_min + 1
 
     def get_tic(self) -> np.ndarray:
         """Get TIC data."""

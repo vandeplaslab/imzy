@@ -1,12 +1,14 @@
 """Base reader."""
 import os
 import typing as ty
-from pathlib import Path
 from contextlib import suppress
+from functools import lru_cache
+from pathlib import Path
 
 import numpy as np
 from koyo.spectrum import find_between_batch, find_between_ppm, find_between_tol, get_mzs_for_tol
 from koyo.typing import PathLike
+from koyo.utilities import get_min_max
 from tqdm import tqdm
 
 from imzy.utilities import accumulate_peaks_centroid, accumulate_peaks_profile
@@ -56,13 +58,34 @@ class BaseReader:
     def _read_spectra(self, indices: ty.Optional[np.ndarray] = None) -> ty.Iterator[ty.Tuple[np.ndarray, np.ndarray]]:
         raise NotImplementedError("Must implement method")
 
-    def reshape(self, array: np.ndarray, fill_value: float = 0) -> np.ndarray:
-        """Reshape vector into an image."""
+    @property
+    def rois(self) -> ty.List[int]:
+        """Return list of ROIs."""
         raise NotImplementedError("Must implement method")
 
-    def reshape_batch(self, array: np.ndarray, fill_value: float = 0) -> np.ndarray:
-        """Reshape multiple vectors into a stack of images."""
+    @property
+    def x_pixel_size(self) -> float:
+        """Return x pixel size in micrometers."""
         raise NotImplementedError("Must implement method")
+
+    @property
+    def y_pixel_size(self) -> float:
+        """Return y pixel size in micrometers."""
+        raise NotImplementedError("Must implement method")
+
+    @property
+    @lru_cache
+    def x_size(self):
+        """X-axis size."""
+        min_val, max_max = get_min_max(self.x_coordinates)
+        return max_max - min_val + 1
+
+    @property
+    @lru_cache
+    def y_size(self):
+        """Y-axis size."""
+        min_val, max_max = get_min_max(self.y_coordinates)
+        return max_max - min_val + 1
 
     def __iter__(self):
         return self
@@ -80,6 +103,33 @@ class BaseReader:
         """Retrieve spectrum."""
         return self.get_spectrum(item)
 
+    def reshape(self, array: np.ndarray, fill_value: float = 0) -> np.ndarray:
+        """Reshape vector of intensities."""
+        if len(array) != self.n_pixels:
+            raise ValueError("Wrong size and shape of the array.")
+        dtype = np.float32 if np.isnan(fill_value) else array.dtype
+        im = np.full((self.y_size, self.x_size), fill_value=fill_value, dtype=dtype)
+        im[self.y_coordinates, self.x_coordinates] = array
+        return im
+
+    def reshape_batch(self, array: np.ndarray, fill_value: float = 0) -> np.ndarray:
+        """Batch reshaping of images."""
+        if array.ndim != 2:
+            raise ValueError("Expected 2-D array.")
+        if len(array) != self.n_pixels:
+            raise ValueError("Wrong size and shape of the array.")
+        n = array.shape[1]
+        dtype = np.float32 if np.isnan(fill_value) else array.dtype
+        im = np.full((n, self.y_size, self.x_size), fill_value=fill_value, dtype=dtype)
+        for i in range(n):
+            im[i, self.y_coordinates, self.x_coordinates] = array[:, i]
+        return im
+
+    @property
+    def image_shape(self) -> ty.Tuple[int, int]:
+        """Return shape of the image."""
+        return self.y_size, self.x_size
+
     @property
     def xyz_coordinates(self) -> np.ndarray:
         """Return xyz coordinates."""
@@ -88,17 +138,17 @@ class BaseReader:
     @property
     def x_coordinates(self) -> np.ndarray:
         """Return x-axis coordinates/."""
-        return self._xyz_coordinates[:, 0]
+        return self.xyz_coordinates[:, 0]
 
     @property
     def y_coordinates(self) -> np.ndarray:
         """Return y-axis coordinates."""
-        return self._xyz_coordinates[:, 1]
+        return self.xyz_coordinates[:, 1]
 
     @property
     def z_coordinates(self) -> np.ndarray:
         """Return z-axis coordinates."""
-        return self._xyz_coordinates[:, 2]
+        return self.xyz_coordinates[:, 2]
 
     @property
     def pixels(self) -> np.ndarray:
@@ -109,21 +159,6 @@ class BaseReader:
     def n_pixels(self):
         """Return the total number of pixels in the dataset."""
         return len(self.x_coordinates)
-
-    @property
-    def rois(self) -> ty.List[int]:
-        """Return list of ROIs."""
-        raise NotImplementedError("Must implement method")
-
-    @property
-    def x_pixel_size(self) -> float:
-        """Return x pixel size in micrometers."""
-        raise NotImplementedError("Must implement method")
-
-    @property
-    def y_pixel_size(self) -> float:
-        """Return y pixel size in micrometers."""
-        raise NotImplementedError("Must implement method")
 
     @property
     def pixel_size(self) -> float:

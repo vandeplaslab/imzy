@@ -1,4 +1,5 @@
 """Python wrapper for timsdata.dll for reading tsf."""
+import typing as ty
 from ctypes import (
     POINTER,
     c_char_p,
@@ -18,6 +19,7 @@ from koyo.system import IS_LINUX, IS_WIN
 from koyo.typing import PathLike
 
 from imzy._readers.bruker._mixin import BrukerBaseReader
+from imzy.hookspec import hook_impl
 
 _base_path = Path(__file__).parent.absolute()
 if IS_WIN:
@@ -158,3 +160,24 @@ class TSFReader(BrukerBaseReader):
                 break
 
         return intensity_buf[0:required_len]
+
+
+def is_tsf(path: PathLike) -> bool:
+    """Check if path is Bruker .d/tsf."""
+    from koyo.system import IS_MAC
+
+    path = Path(path)
+    return (
+        path.suffix.lower() == ".d"
+        and (path / "analysis.tsf").exists()
+        and (path / "analysis.tsf_bin").exists()
+        and not IS_MAC
+    )
+
+
+@hook_impl
+def imzy_reader(path: PathLike, **kwargs) -> ty.Optional[TSFReader]:
+    """Return TDFReader if path is Bruker .d/tdf."""
+    if is_tsf(path):
+        return TSFReader(path, **kwargs)
+    return None

@@ -1,4 +1,5 @@
 """Python wrapper for timsdata.dll."""
+import typing as ty
 from ctypes import (
     CFUNCTYPE,
     POINTER,
@@ -24,6 +25,7 @@ from scipy import sparse
 
 from imzy._readers.bruker._mixin import BrukerBaseReader
 from imzy._readers.bruker.utilities import get_sparse_data_from_buffer
+from imzy.hookspec import hook_impl
 
 _base_path = Path(__file__).parent.absolute()
 if IS_WIN:
@@ -91,7 +93,7 @@ dll.tims_extract_profile_for_frame.restype = c_uint32
 
 
 class ChromatogramJob(Structure):
-    _fields_ = [
+    _fields_: ty.ClassVar[ty.List] = [
         ("id", c_int64),
         ("time_begin", c_double),
         ("time_end", c_double),
@@ -314,3 +316,24 @@ class TDFReader(BrukerBaseReader):
                     raise ValueError("Number of mobility bins is not consistent amongst all frames")
                 n_dt_bins = n_dt_bins[0][0]
         return n_dt_bins
+
+
+def is_tdf(path: PathLike) -> bool:
+    """Check if path is Bruker .d/tdf."""
+    from koyo.system import IS_MAC
+
+    path = Path(path)
+    return (
+        path.suffix.lower() == ".d"
+        and (path / "analysis.tdf").exists()
+        and (path / "analysis.tdf_bin").exists()
+        and not IS_MAC
+    )
+
+
+@hook_impl
+def imzy_reader(path: PathLike, **kwargs) -> ty.Optional[TDFReader]:
+    """Return TDFReader if path is Bruker .d/tdf."""
+    if is_tdf(path):
+        return TDFReader(path, **kwargs)
+    return None
