@@ -11,7 +11,7 @@ hook_spec = HookspecMarker("imzy")
 hook_impl = HookimplMarker("imzy")
 
 
-@hook_spec
+@hook_spec(firstresult=False)
 def imzy_reader(path: PathLike, **kwargs) -> ty.Optional["BaseReader"]:
     """Hook specification for file reader.
 

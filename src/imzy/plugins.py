@@ -28,7 +28,7 @@ class ImzyPluginManager(PluginManager):
             self.register(_tdf)
             self.register(_tsf)
         # add entry hooks
-        self.load_setuptools_entrypoints("imzy")
+        self.load_setuptools_entrypoints("imzy.plugins")
 
     def get_reader(self, path, **kwargs) -> "BaseReader":
         """Get reader for specified path."""
