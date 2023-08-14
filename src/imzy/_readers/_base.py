@@ -25,7 +25,7 @@ class BaseReader:
     def __init__(self, path: PathLike):
         self.path = Path(path)
 
-    def _init(self):
+    def _init(self, *args, **kwargs):
         """Method which is called to initialize the reader."""
         raise NotImplementedError("Must implement method")
 
