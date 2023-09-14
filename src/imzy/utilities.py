@@ -56,34 +56,6 @@ def _accumulate_peaks_profile(indices: IndicesType, y: np.ndarray):
     return result
 
 
-def get_ppm_axis(mz_start: float, mz_end: float, ppm: float):
-    """Compute sequence of m/z values at a particular ppm."""
-    import math
-
-    if mz_start == 0 or mz_end == 0 or ppm == 0:
-        raise ValueError("Input values cannot be equal to 0.")
-    length = (np.log(mz_end) - np.log(mz_start)) / np.log((1 + 1e-6 * ppm) / (1 - 1e-6 * ppm))
-    length = math.floor(length) + 1
-    mz = mz_start * np.power(((1 + 1e-6 * ppm) / (1 - 1e-6 * ppm)), (np.arange(length)))
-    return mz
-
-
-@numba.njit()
-def trim_axis(x: np.ndarray, y: np.ndarray, min_val: float, max_val: float):
-    """Trim axis to prevent accumulation of edges."""
-    mask = np.where((x >= min_val) & (x <= max_val))
-    return x[mask], y[mask]
-
-
-@numba.njit()
-def set_ppm_axis(mz_x: np.ndarray, mz_y: np.ndarray, x: np.ndarray, y: np.ndarray):
-    """Set values for axis."""
-    mz_idx = np.digitize(x, mz_x, True)
-    for i, idx in enumerate(mz_idx):
-        mz_y[idx] += y[i]
-    return mz_y
-
-
 def optimize_chunks_along_axis(
     axis: int,
     *,

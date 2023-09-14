@@ -196,7 +196,7 @@ class IMZMLReader(BaseReader):
         # we must create our own.
         # We have decided to create resampled spectrum with pre-defined ppm limit. This is not ideal but its better than
         # not doing it at all.
-        from imzy.utilities import get_ppm_axis, set_ppm_axis, trim_axis
+        from koyo.spectrum import get_ppm_axis, set_ppm_axis, trim_axis
 
         mz_min, mz_max = self._estimate_mass_range()
         mz_x = get_ppm_axis(mz_min, mz_max, self.mz_ppm)
@@ -401,7 +401,7 @@ def fix_offsets(offsets):
         for values in offsets:
             value = values[index]
             if value < 0 <= prev_value:
-                delta += 2 ** 32
+                delta += 2**32
             values[index] = value + delta
             prev_value = value
 
