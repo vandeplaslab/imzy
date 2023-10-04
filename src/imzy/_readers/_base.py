@@ -276,6 +276,9 @@ class BaseReader:
 
         if not as_flat:
             raise ValueError("Only flat images are supported at the moment.")
+        if tol is None and ppm is None or tol == 0 and ppm == 0:
+            raise ValueError("Please specify `tol` or `ppm`.")
+
         check_zarr()
         import dask.array as dsa
 
@@ -308,7 +311,14 @@ class BaseReader:
 
         ds = dsa.from_zarr(zarr_array_path)
         ys = ds.sum(axis=0).compute()
-        create_centroids_zarr(self.path, zarr_path, len(mzs_min), ys=np.asarray(ys))
+        create_centroids_zarr(
+            self.path,
+            zarr_path,
+            len(mzs_min),
+            ys=np.asarray(ys),
+            ppm=ppm,
+            tol=tol,
+        )
 
         target_path = str(zarr_path / "array")
         rechunk_zarr_array(self.path, zarr_array_path, target_path, chunk_size=chunk_size)

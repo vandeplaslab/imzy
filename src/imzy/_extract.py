@@ -43,11 +43,10 @@ def create_centroids_zarr(
     """Create group with datasets inside."""
     import zarr
 
-    reader = get_reader(input_dir)
-
     if tol is None and ppm is None:
         raise ValueError("Either `tol` or `ppm` should be specified.")
 
+    reader = get_reader(input_dir)
     store = zarr.DirectoryStore(str(zarr_path))
     group = zarr.group(store=store)
     # add metadata
