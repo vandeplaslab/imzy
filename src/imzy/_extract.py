@@ -45,7 +45,7 @@ def create_centroids_zarr(
 
     reader = get_reader(input_dir)
 
-    if not tol and not ppm:
+    if tol is None and ppm is None:
         raise ValueError("Either `tol` or `ppm` should be specified.")
 
     store = zarr.DirectoryStore(str(zarr_path))
@@ -189,7 +189,7 @@ def create_centroids_hdf5(
     from imzy._centroids import H5CentroidsStore
     from imzy.utilities import optimize_chunks_along_axis
 
-    if not tol and not ppm:
+    if tol is None and ppm is None:
         raise ValueError("Either `tol` or `ppm` should be specified.")
 
     reader = get_reader(input_dir)

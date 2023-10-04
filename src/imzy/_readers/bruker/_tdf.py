@@ -193,7 +193,7 @@ class TDFReader(BrukerBaseReader):
 
         # data attributes
         self.n_dt_bins = self.get_n_mobility_bins()
-        self.n_mz_bins = int(np.round(self.mz_to_index(1, [self.mz_max])))
+        self.n_mz_bins = int(np.round(self.mz_to_index(1, [self.mz_max]))[0])
         self.frame_shape = (self.n_mz_bins, self.n_dt_bins)
 
     def _call_conversion_func(self, frame_id: int, input_data: np.ndarray, func: ty.Callable) -> np.ndarray:

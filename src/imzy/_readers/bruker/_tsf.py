@@ -97,7 +97,7 @@ class TSFReader(BrukerBaseReader):
             _throw_last_error(self.dll)
 
         # data attributes
-        self.n_mz_bins = int(np.round(self.mz_to_index(1, [self.mz_max])))
+        self.n_mz_bins = int(np.round(self.mz_to_index(1, [self.mz_max]))[0])
 
     def _call_conversion_func(self, index: int, input_data: np.ndarray, func: ty.Callable) -> np.ndarray:
         success, out = self._call_conversion_func_base(index, input_data, func)
