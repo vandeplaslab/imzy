@@ -5,7 +5,7 @@ from warnings import warn
 
 import numpy as np
 from koyo.typing import PathLike
-from tqdm.auto import tqdm
+from tqdm import tqdm
 
 from imzy._readers._base import BaseReader
 from imzy._readers.imzml._ontology import get_cv_param
@@ -20,13 +20,13 @@ class IMZMLCache:
 
     def __init__(self, metadata_dict: ty.Dict):
         self.metadata_dict = metadata_dict
-        self.PX_MAX_X = metadata_dict["max count of pixels x"]
-        self.PX_MAX_Y = metadata_dict["max count of pixels y"]
-        self.PX_MAX_Z = metadata_dict.get("max count of pixels z", 1)
-        self.PX_SIZE_X = metadata_dict.get("pixel size x", 1)
-        self.PX_SIZE_Y = metadata_dict.get("pixel size y", 1)
+        self.PX_MAX_X: int = metadata_dict["max count of pixels x"]
+        self.PX_MAX_Y: int = metadata_dict["max count of pixels y"]
+        self.PX_MAX_Z: int = metadata_dict.get("max count of pixels z", 1)
+        self.PX_SIZE_X: float = metadata_dict.get("pixel size x", 1)
+        self.PX_SIZE_Y: float = metadata_dict.get("pixel size y", 1)
 
-    def to_cache(self):
+    def to_cache(self) -> ty.Dict:
         """Serialize metadata to cache."""
         return {
             "px_max_x": self.PX_MAX_X,
@@ -37,7 +37,7 @@ class IMZMLCache:
         }
 
     @classmethod
-    def from_cache(cls, path: Path):
+    def from_cache(cls, path: Path) -> "IMZMLCache":
         """Read data from cache."""
         data = {}
         with np.load(path) as f_ptr:
@@ -54,7 +54,7 @@ class IMZMLReader(BaseReader):
 
     _ibd_path: ty.Optional[Path] = None
     _icache_path: ty.Optional[Path] = None
-    _is_centroid: bool = None
+    _is_centroid: ty.Optional[bool] = None
 
     def __init__(
         self,
@@ -70,10 +70,17 @@ class IMZMLReader(BaseReader):
         self._mz_min = mz_min
         self._mz_max = mz_max
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"{self.__class__.__name__}<{self.path}; centroid={self.is_centroid}>"
 
-    def _init(self, ibd_path: ty.Optional[PathLike] = None):
+    @property
+    def ibd_path(self) -> Path:
+        """Return path to ibd file."""
+        if not self._ibd_path:
+            raise ValueError("ibd path is not set.")
+        return self._ibd_path
+
+    def _init(self, ibd_path: ty.Optional[PathLike] = None) -> None:
         """Initialize metadata."""
         _, self._ibd_path, self._icache_path = infer_path(self.path, ibd_path)
         if self._icache_path and self._icache_path.exists():
@@ -110,7 +117,7 @@ class IMZMLReader(BaseReader):
         return mz_max
 
     @property
-    def metadata(self):
+    def metadata(self) -> IMZMLCache:
         """Cache."""
         return self._imzml_cache
 
@@ -142,7 +149,7 @@ class IMZMLReader(BaseReader):
         """Return y pixel size in micrometers."""
         return self.metadata.PX_SIZE_Y
 
-    def get_physical_coordinates(self, index: int):
+    def get_physical_coordinates(self, index: int) -> ty.Tuple[float, float]:
         """For a pixel index i, return real-world coordinates in micrometers.
 
         This is equivalent to multiplying the image coordinates of the given pixel with the pixel size.
@@ -179,10 +186,14 @@ class IMZMLReader(BaseReader):
             raise ValueError("You cannot specify indices that are greater than the total number of pixels.")
         if self.is_centroid:
             return self._get_summed_spectrum_centroid(indices)
-        else:
-            return self._get_summed_spectrum_profile(indices)
+        return self._get_summed_spectrum_profile(indices)
 
-    def _get_summed_spectrum_profile(self, indices: ty.Iterable[int], silent: bool = False):
+    def _get_summed_spectrum_profile(
+        self, indices: ty.Iterable[int], silent: bool = False
+    ) -> ty.Tuple[np.ndarray, np.ndarray]:
+        indices = np.asarray(indices)
+        if indices.size == 0:
+            raise ValueError("You must specify at least one index.")
         mz_x, mz_y = self[indices[0]]
         mz_y = mz_y.copy().astype(np.float64)
         for _, y in tqdm(
@@ -191,12 +202,18 @@ class IMZMLReader(BaseReader):
             mz_y += y
         return mz_x, mz_y
 
-    def _get_summed_spectrum_centroid(self, indices: ty.Iterable[int], silent: bool = False):
+    def _get_summed_spectrum_centroid(
+        self, indices: ty.Iterable[int], silent: bool = False
+    ) -> ty.Tuple[np.ndarray, np.ndarray]:
         # creating summed spectrum from centroided data is a lot harder because there is no consensus axis in which case
         # we must create our own.
         # We have decided to create resampled spectrum with pre-defined ppm limit. This is not ideal but its better than
         # not doing it at all.
         from koyo.spectrum import get_ppm_axis, set_ppm_axis, trim_axis
+
+        indices = np.asarray(indices)
+        if indices.size == 0:
+            raise ValueError("You must specify at least one index.")
 
         mz_min, mz_max = self._estimate_mass_range()
         mz_x = get_ppm_axis(mz_min, mz_max, self.mz_ppm)
@@ -214,7 +231,7 @@ class IMZMLReader(BaseReader):
             else:
                 indices = np.unique(np.random.choice(self.pixels, 5000, replace=False))
             mz_min, mz_max = 1e6, 0
-            with open(self._ibd_path, "rb") as f_ptr:
+            with open(self.ibd_path, "rb") as f_ptr:
                 for index in indices:
                     mz_o, mz_l, _, _ = self.byte_offsets[index]
                     f_ptr.seek(mz_o)
@@ -231,7 +248,7 @@ class IMZMLReader(BaseReader):
         return self._mz_min, self._mz_max
 
     def _read_spectrum(self, index: int) -> ty.Tuple[np.ndarray, np.ndarray]:
-        with open(self._ibd_path, "rb") as f_ptr:
+        with open(self.ibd_path, "rb") as f_ptr:
             mz_o, mz_l, int_o, int_l = self.byte_offsets[index]
             f_ptr.seek(mz_o)
             mz_bytes = f_ptr.read(mz_l * self._mz_size)
@@ -245,7 +262,7 @@ class IMZMLReader(BaseReader):
         """Read spectra without constantly opening and closing the file handle."""
         if indices is None:
             indices = self.pixels
-        with open(self._ibd_path, "rb") as f_ptr:
+        with open(self.ibd_path, "rb") as f_ptr:
             for index in indices:
                 mz_o, mz_l, int_o, int_l = self.byte_offsets[index]
                 f_ptr.seek(mz_o)
@@ -276,6 +293,7 @@ def infer_path(path: Path, ibd_path: ty.Optional[PathLike] = None) -> ty.Tuple[P
     return path, ibd_path, icache_path
 
 
+# noinspection HttpUrlsUsage
 def read_imzml_metadata(root, sl: str = "{http://psi.hupo.org/ms/mzml}"):
     """Initializes the imzml dict with frequently used metadata from the .imzML file.
 
@@ -478,7 +496,7 @@ class CoordinateIndices:
     Z = 2
 
 
-def choose_iterparse(parse_lib=None):
+def choose_iterparse(parse_lib: ty.Optional[str] = None) -> ty.Callable:
     """Choose iterparse."""
     if parse_lib == "ElementTree":
         from xml.etree.ElementTree import iterparse
@@ -495,7 +513,7 @@ def choose_iterparse(parse_lib=None):
     return iterparse
 
 
-def read_icache(path: Path):
+def read_icache(path: Path) -> ty.Tuple[str, str, np.ndarray, np.ndarray]:
     """Read icache file into memory."""
     with np.load(path) as f_ptr:
         mz_precision = str(f_ptr["mz_precision"])
@@ -505,7 +523,7 @@ def read_icache(path: Path):
     return mz_precision, int_precision, byte_offsets, xyz_coordinates
 
 
-def write_icache(obj: IMZMLReader, path: Path):
+def write_icache(obj: IMZMLReader, path: Path) -> None:
     """Write icache file to disk so next time the imzML file is being opened, it will be much, much faster."""
     np.savez(
         path,

@@ -155,8 +155,14 @@ disallow_any_generics = false
 disallow_subclassing_any = false
 show_error_codes = true
 pretty = true
+ignore_missing_imports = true
+exclude = [
+    "venv",
+    "tests",
+    "src/imzy/_version.py"
+]
 
-# # module specific overrides
+# module specific overrides
 # [[tool.mypy.overrides]]
 # module = ["numpy.*",]
 # ignore_errors = true

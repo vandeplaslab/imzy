@@ -25,7 +25,7 @@ class BaseReader:
     def __init__(self, path: PathLike):
         self.path = Path(path)
 
-    def _init(self, *args, **kwargs):
+    def _init(self, *args, **kwargs) -> None:
         """Method which is called to initialize the reader."""
         raise NotImplementedError("Must implement method")
 
@@ -48,7 +48,7 @@ class BaseReader:
         """Return mass spectrum."""
         return self._read_spectrum(index)
 
-    def get_summed_spectrum(self, indices: ty.Iterable[int], silent: bool = False):
+    def get_summed_spectrum(self, indices: ty.Iterable[int], silent: bool = False) -> ty.Tuple[np.ndarray, np.ndarray]:
         """Sum pixel data to produce summed mass spectrum."""
         raise NotImplementedError("Must implement method")
 
@@ -75,22 +75,22 @@ class BaseReader:
 
     @property
     @lru_cache
-    def x_size(self):
+    def x_size(self) -> int:
         """X-axis size."""
         min_val, max_max = get_min_max(self.x_coordinates)
-        return max_max - min_val + 1
+        return int(max_max - min_val + 1)
 
     @property
     @lru_cache
-    def y_size(self):
+    def y_size(self) -> int:
         """Y-axis size."""
         min_val, max_max = get_min_max(self.y_coordinates)
-        return max_max - min_val + 1
+        return int(max_max - min_val + 1)
 
-    def __iter__(self):
+    def __iter__(self) -> "BaseReader":
         return self
 
-    def __next__(self):
+    def __next__(self) -> ty.Tuple[np.ndarray, np.ndarray]:
         """Get next spectrum."""
         if self._current < self.n_pixels - 1:
             self._current += 1
@@ -99,7 +99,7 @@ class BaseReader:
             self._current = -1
             raise StopIteration
 
-    def __getitem__(self, item: int):
+    def __getitem__(self, item: int) -> ty.Tuple[np.ndarray, np.ndarray]:
         """Retrieve spectrum."""
         return self.get_spectrum(item)
 
@@ -133,6 +133,8 @@ class BaseReader:
     @property
     def xyz_coordinates(self) -> np.ndarray:
         """Return xyz coordinates."""
+        if self._xyz_coordinates is None:
+            raise ValueError("Coordinates have not been initialized.")
         return self._xyz_coordinates
 
     @property
@@ -156,7 +158,7 @@ class BaseReader:
         return np.arange(self.n_pixels)
 
     @property
-    def n_pixels(self):
+    def n_pixels(self) -> int:
         """Return the total number of pixels in the dataset."""
         return len(self.x_coordinates)
 
@@ -170,7 +172,7 @@ class BaseReader:
             raise ValueError("Pixel size is not equal in both dimensions.")
         return self.x_pixel_size
 
-    def get_chromatogram(self, indices: ty.Iterable[int]):
+    def get_chromatogram(self, indices: ty.Iterable[int]) -> np.ndarray:
         """Return chromatogram."""
         indices = np.asarray(indices)
         array = np.zeros(len(indices), dtype=np.float32)
@@ -221,7 +223,7 @@ class BaseReader:
         ppm: ty.Optional[float] = None,
         fill_value: float = np.nan,
         silent: bool = False,
-    ):
+    ) -> np.ndarray:
         mzs = np.asarray(mzs)
         mzs_min, mzs_max = get_mzs_for_tol(mzs, tol, ppm)
         res = np.full((self.n_pixels, len(mzs)), dtype=np.float32, fill_value=fill_value)
@@ -255,7 +257,7 @@ class BaseReader:
         ppm: ty.Optional[float] = None,
         fill_value: float = np.nan,
         silent: bool = False,
-    ):
+    ) -> np.ndarray:
         """Return many ion images for specified m/z values without reshaping."""
         return self._get_ions(mzs, tol, ppm, fill_value, silent)
 
@@ -275,6 +277,7 @@ class BaseReader:
         if not as_flat:
             raise ValueError("Only flat images are supported at the moment.")
         check_zarr()
+        import dask.array as dsa
 
         mzs = np.asarray(mzs)
         if mzs.size == 0:
@@ -302,8 +305,6 @@ class BaseReader:
             indices=self.pixels,
             silent=silent,
         )
-
-        import dask.array as dsa
 
         ds = dsa.from_zarr(zarr_array_path)
         ys = ds.sum(axis=0).compute()
@@ -370,17 +371,20 @@ class BaseReader:
         )
         return hdf_path
 
-    def spectra_iter(self, indices: ty.Optional[ty.Iterable[int]] = None, silent: bool = False):
+    def spectra_iter(
+        self, indices: ty.Optional[ty.Iterable[int]] = None, silent: bool = False
+    ) -> ty.Generator[ty.Tuple[np.ndarray, np.ndarray], None, None]:
         """Yield spectra."""
         indices = self.pixels if indices is None else np.asarray(indices)
         yield from tqdm(
             self._read_spectra(indices), total=len(indices), disable=silent, miniters=500, desc="Iterating spectra..."
         )
 
-    def _write_cache(self, filename: str, data: ty.Dict):
-        """Loading of SQL data can be very slow for some datasets so we can cache it instead.
+    def _write_cache(self, filename: str, data: ty.Dict) -> None:
+        """Sometimes, reading data from raw data can be very slow, so we can cache it instead.
 
-        We write some of the metadata to a cache directory that will be located inside of the `Bruker .d` folder.
+        Cache data is usually written inside the raw directory (e.g. inside Bruker .d or Waters .raw) or next to it
+        (e.g. when dealing with imzML).
 
         Parameters
         ----------
@@ -391,25 +395,25 @@ class BaseReader:
         """
         cache_dir_path = Path(self.path) / ".icache"
         cache_dir_path.mkdir(exist_ok=True)
-        _filename = cache_dir_path / (filename + ".tmp.npz")
+        tmp_filename = cache_dir_path / (filename + ".tmp.npz")
         filename = cache_dir_path / (filename + ".npz")
-        np.savez(_filename, **data)
+        np.savez(tmp_filename, **data)
         try:
-            _filename.rename(filename)
+            tmp_filename.rename(filename)
         except OSError:
             with suppress(FileNotFoundError):
                 os.remove(filename)
-            _filename.rename(filename)
+            tmp_filename.rename(filename)
 
-    def _read_cache(self, filename: str, keys: ty.List[str]):
+    def _read_cache(self, filename: str, keys: ty.List[str]) -> ty.Dict[str, ty.Optional[np.ndarray]]:
         """Load cache metadata.
 
         Parameters
         ----------
         filename : str
-            name of the cache file without the .npz suffix
+            Name of the cache file without the .npz suffix
         keys : list
-            list of keys to be read when cache file is loaded
+            Keys to be read when cache file is loaded
         """
         cache_file_path = Path(self.path) / ".icache" / (filename + ".npz")
 
