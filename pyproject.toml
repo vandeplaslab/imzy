@@ -50,7 +50,7 @@ dependencies = [
   "tqdm",
   "natsort",
   "koyo",
-  "pluggy"
+  "pluggy",
 ]
 
 # extras
