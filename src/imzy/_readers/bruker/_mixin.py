@@ -2,12 +2,12 @@
 import sqlite3
 import typing as ty
 from contextlib import contextmanager
-from ctypes import POINTER, c_double
+from ctypes import CDLL, POINTER, c_double
 
 import numpy as np
 from koyo.typing import PathLike
 from koyo.utilities import get_min_max
-from tqdm.auto import tqdm
+from tqdm import tqdm
 
 from imzy._readers._base import BaseReader
 
@@ -16,12 +16,12 @@ class BrukerBaseReader(BaseReader):
     """Base class for TSF/TDF file readers."""
 
     # class attributes
-    dll = None
+    dll: ty.Optional[CDLL] = None
     handle = None
     sql_filename: str
-    _mz_x = None
-    _rois = None
-    _pixel_size = None
+    _mz_x: ty.Optional[np.ndarray] = None
+    _rois: ty.Optional[ty.List[int]] = None
+    _pixel_size: ty.Optional[float] = None
 
     # DLL functions
     _dll_close_func: ty.Callable
@@ -32,19 +32,19 @@ class BrukerBaseReader(BaseReader):
         super().__init__(path)
         self._init()
 
-    def _init(self):
+    def _init(self) -> None:
         """Extra initialization."""
         assert (self.path / self.sql_filename).exists(), f"Could not find {self.sql_filename} file."
         self._mz_min, self._mz_max = self.get_acquisition_mass_range()
-        self.get_region_information()
+        self.set_region_information()
 
     @property
-    def mz_min(self):
+    def mz_min(self) -> float:
         """Return minimum m/z value."""
         return self._mz_min
 
     @property
-    def mz_max(self):
+    def mz_max(self) -> float:
         """Return maximum m/z value."""
         return self._mz_max
 
@@ -86,7 +86,7 @@ class BrukerBaseReader(BaseReader):
         except RuntimeError:
             return False
 
-    def get_summed_spectrum(self, indices: ty.Iterable[int], silent: bool = False):
+    def get_summed_spectrum(self, indices: ty.Iterable[int], silent: bool = False) -> ty.Tuple[np.ndarray, np.ndarray]:
         """Sum pixel data to produce summed mass spectrum."""
         indices = np.asarray(indices)
         if np.any(indices >= self.n_pixels):
@@ -105,32 +105,34 @@ class BrukerBaseReader(BaseReader):
         for index in indices:
             yield self._read_spectrum(index)
 
-    def __enter__(self):
+    def __enter__(self) -> "BrukerBaseReader":
         return self
 
-    def __exit__(self, type, value, traceback):
+    def __exit__(self, type, value, traceback) -> None:  # type: ignore
         self.close()
 
-    def __del__(self):
+    def __del__(self) -> None:
         self.close()
 
     @contextmanager
-    def sql_reader(self):
+    def sql_reader(self) -> ty.Generator[sqlite3.Connection, None, None]:
         """SQL reader context manager."""
         conn = sqlite3.connect(self.path / self.sql_filename)
         yield conn
         conn.close()
 
-    def close(self):
+    def close(self) -> None:
         """Close file."""
         if hasattr(self, "handle") and self.handle is not None:
             self._dll_close_func(self.handle)
             self.handle = None
 
-    def _call_conversion_func(self, frame_id, input_data, func):
+    def _call_conversion_func(self, frame_id: int, input_data: np.ndarray, func: ty.Callable) -> np.ndarray:
         raise NotImplementedError("Must implement method")
 
-    def _call_conversion_func_base(self, frame_id, input_data, func):
+    def _call_conversion_func_base(
+        self, frame_id: int, input_data: np.ndarray, func: ty.Callable
+    ) -> ty.Tuple[int, np.ndarray]:
         if type(input_data) is np.ndarray and input_data.dtype == np.float64:
             # already "native" format understood by DLL -> avoid extra copy
             in_array = input_data
@@ -150,7 +152,7 @@ class BrukerBaseReader(BaseReader):
         return success, out
 
     @property
-    def mz_index(self):
+    def mz_index(self) -> np.ndarray:
         """Return index."""
         bruker_mz_max = self.read_profile_spectrum(1).shape[0]
         return np.arange(0, bruker_mz_max)
@@ -162,24 +164,24 @@ class BrukerBaseReader(BaseReader):
             self._mz_x = self.index_to_mz(1, self.mz_index)
         return self._mz_x
 
-    def index_to_mz(self, frame_id, indices):
+    def index_to_mz(self, frame_id: int, indices: ty.Iterable[int]) -> np.ndarray:
+        """Convert m/z index to m/z."""
         return self._call_conversion_func(frame_id, indices, self._dll_index_to_mz_func)
 
-    def mz_to_index(self, frame_id, mzs):
+    def mz_to_index(self, frame_id: int, mzs: ty.Iterable[float]) -> np.ndarray:
+        """Convert m/z to index."""
         return self._call_conversion_func(frame_id, mzs, self._dll_mz_to_index_func)
 
-    def _read_spectrum(self, index: int):
+    def read_profile_spectrum(self, index: int) -> np.ndarray:
+        """Read profile spectrum/."""
         raise NotImplementedError("Must implement method")
 
-    def read_profile_spectrum(self, index: int):
-        raise NotImplementedError("Must implement method")
-
-    def get_n_pixels(self):
+    def get_n_pixels(self) -> int:
         """Retrieve number of frames from the file."""
         with self.sql_reader() as conn:
             q = conn.execute("SELECT Max(Frame) FROM MaldiFrameInfo")
-            n_frames = q.fetchone()
-        return n_frames[0]
+            n_frames = int(q.fetchone()[0])
+        return n_frames
 
     def get_acquisition_mass_range(self) -> ty.Tuple[float, float]:
         """Retrieve acquisition mass range from the file."""
@@ -198,7 +200,7 @@ class BrukerBaseReader(BaseReader):
         return mz_min, mz_max
 
     # noinspection PyAttributeOutsideInit
-    def get_region_information(self, roi: ty.Optional[int] = None):
+    def set_region_information(self, roi: ty.Optional[int] = None) -> None:
         """Collect file information."""
         data = self._read_cache("frame_index_cache", ["frame_index_position"])
         # load data from cache
@@ -214,6 +216,8 @@ class BrukerBaseReader(BaseReader):
         # get ROI
         self.region_number = frame_index_position[:, 3]
         self.region_frames = np.arange(0, len(self.region_number))
+        if self.region_number.size > 0:
+            self._rois = np.arange(0, self.region_number[-1] + 1).tolist()
 
         # select only those frames that match specific region of interest
         if roi not in [None, "None"]:
@@ -232,7 +236,7 @@ class BrukerBaseReader(BaseReader):
         y_coordinates = y_coordinates - y_min
         self._xyz_coordinates = np.column_stack((x_coordinates, y_coordinates, np.zeros_like(x_coordinates)))
 
-    def get_tic(self) -> np.ndarray:
+    def get_tic(self, silent: bool = False) -> np.ndarray:
         """Get TIC data."""
         if self._tic is None:
             data = self._read_cache("tic", ["tic", "region_frames"])

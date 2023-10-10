@@ -1,9 +1,13 @@
+import typing as ty
+
 import numba
 import numpy as np
 
 
 @numba.njit(fastmath=True, cache=True)
-def get_sparse_data_from_buffer(buffer: np.ndarray, mz_min_idx: int, mz_max_idx: int, scan_begin: int, scan_end: int):
+def get_sparse_data_from_buffer(
+    buffer: np.ndarray, mz_min_idx: int, mz_max_idx: int, scan_begin: int, scan_end: int
+) -> ty.Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Get the instantiation values for COO array by iterating over the data extracted from the Bruker frame.
 
     Parameters

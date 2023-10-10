@@ -1,4 +1,5 @@
 """Ontology utilities."""
+import typing as ty
 from datetime import datetime
 from warnings import warn
 
@@ -41,7 +42,8 @@ ACCESSION_FIX_MAPPING = {
 }
 
 
-def convert_xml_value(dtype, value):
+def convert_xml_value(dtype: str, value: ty.Any) -> ty.Any:
+    """Convert a value from an XML attribute to the expected datatype."""
     try:
         if dtype is not None:
             return DTYPE_MAPPING[dtype](value)
@@ -57,11 +59,12 @@ def convert_xml_value(dtype, value):
         return None
 
 
-def convert_term_name(accession):
+def convert_term_name(accession: str) -> str:
+    """Looks up a term by accession number, and returns the term name."""
     return all_terms.get(accession, (accession, None))[0]
 
 
-def convert_cv_param(accession, value):
+def convert_cv_param(accession: str, value: ty.Any) -> ty.Any:
     """Looks up a term by accession number, and convert the provided value to the expected type."""
     name, dtype = all_terms.get(accession, (accession, None))
     converted_value = convert_xml_value(dtype, value)
@@ -99,7 +102,7 @@ def lookup_and_convert_cv_param(accession, raw_name, value, unit_accession=None)
     return accession, name, converted_value, unit_name
 
 
-def get_cv_param(elem, accession, deep=False, convert=False):
+def get_cv_param(elem, accession: str, deep: bool = False, convert: bool = False) -> ty.Any:
     """Get CV parameter."""
     base = ".//" if deep else ""
     node = elem.find(f'{base}{XMLNS_PREFIX}cvParam[@accession="{accession}"]')

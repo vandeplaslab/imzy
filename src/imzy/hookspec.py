@@ -7,8 +7,8 @@ from pluggy import HookimplMarker, HookspecMarker
 if ty.TYPE_CHECKING:
     from imzy._readers import BaseReader
 
-hook_spec = HookspecMarker("imzy")
-hook_impl = HookimplMarker("imzy")
+hook_spec: ty.Callable = HookspecMarker("imzy")
+hook_impl: ty.Callable = HookimplMarker("imzy")
 
 
 @hook_spec(firstresult=False)

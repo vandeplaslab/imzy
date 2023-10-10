@@ -6,7 +6,7 @@ import numpy as np
 from koyo.spectrum import find_between_batch
 from koyo.typing import PathLike
 from koyo.utilities import chunks
-from tqdm.auto import tqdm
+from tqdm import tqdm
 
 try:
     import hdf5plugin
@@ -17,12 +17,12 @@ from imzy._readers import get_reader
 from imzy.utilities import accumulate_peaks_centroid, accumulate_peaks_profile
 
 
-def check_zarr():
+def check_zarr() -> None:
     """Check whether Zarr, dask and rechunker are installed."""
     try:
-        import dask  # noqa
-        import rechunker  # noqa
-        import zarr  # noqa
+        import dask
+        import rechunker
+        import zarr
     except ImportError:
         raise ImportError(
             "Please install `zarr`, `dask` and `rechunker` to continue. You can do `pip install imzy[zarr]"
@@ -36,15 +36,17 @@ def create_centroids_zarr(
     mzs: ty.Optional[np.ndarray] = None,
     mzs_min: ty.Optional[np.ndarray] = None,
     mzs_max: ty.Optional[np.ndarray] = None,
-    tol: float = 0,
-    ppm: float = 0,
+    tol: ty.Optional[float] = None,
+    ppm: ty.Optional[float] = None,
     ys: ty.Optional[np.ndarray] = None,
 ):
     """Create group with datasets inside."""
     import zarr
 
-    reader = get_reader(input_dir)
+    if tol is None and ppm is None:
+        raise ValueError("Either `tol` or `ppm` should be specified.")
 
+    reader = get_reader(input_dir)
     store = zarr.DirectoryStore(str(zarr_path))
     group = zarr.group(store=store)
     # add metadata
@@ -152,11 +154,11 @@ def rechunk_zarr_array(
     _safe_rmtree(zarr_path)  # remove the temporary array
 
 
-def check_hdf5():
+def check_hdf5() -> None:
     """Check whether Zarr, dask and rechunker are installed."""
     try:
-        import h5py  # noqa
-        import hdf5plugin  # noqa
+        import h5py
+        import hdf5plugin
     except ImportError:
         raise ImportError("Please install `h5py` and `hdf5plugins` to continue. You can do `pip install imzy[hdf5]")
 
@@ -165,7 +167,7 @@ def get_chunk_info(n_pixels: int, n_peaks: int, max_mem: float = 512) -> ty.Dict
     """Get chunk size information for particular dataset."""
     import math
 
-    _max_mem = (float(n_pixels) * n_peaks * 4) / (1024 ** 2)  # assume 4 bytes per element
+    _max_mem = (float(n_pixels) * n_peaks * 4) / (1024**2)  # assume 4 bytes per element
     n_tasks = math.ceil(_max_mem / max_mem) or 1
     return dict(enumerate(list(chunks(np.arange(n_pixels), n_tasks=n_tasks))))
 
@@ -177,14 +179,17 @@ def create_centroids_hdf5(
     mzs: ty.Optional[np.ndarray] = None,
     mzs_min: ty.Optional[np.ndarray] = None,
     mzs_max: ty.Optional[np.ndarray] = None,
-    tol: float = 0,
-    ppm: float = 0,
+    tol: ty.Optional[float] = None,
+    ppm: ty.Optional[float] = None,
     ys: ty.Optional[np.ndarray] = None,
     chunk_info: ty.Optional[ty.Dict[int, np.ndarray]] = None,
-):
+) -> Path:
     """Create group with datasets inside."""
     from imzy._centroids import H5CentroidsStore
     from imzy.utilities import optimize_chunks_along_axis
+
+    if tol is None and ppm is None:
+        raise ValueError("Either `tol` or `ppm` should be specified.")
 
     reader = get_reader(input_dir)
     n_pixels = reader.n_pixels
@@ -236,7 +241,7 @@ def create_centroids_hdf5(
                     dtype=np.float32,
                     **compression,
                 )
-    return hdf_path
+    return Path(hdf_path)
 
 
 def extract_centroids_hdf5(
