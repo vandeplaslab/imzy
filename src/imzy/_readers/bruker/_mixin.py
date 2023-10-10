@@ -217,7 +217,7 @@ class BrukerBaseReader(BaseReader):
         self.region_number = frame_index_position[:, 3]
         self.region_frames = np.arange(0, len(self.region_number))
         if self.region_number.size > 0:
-            self._rois = np.arange(0, self.region_number[-1]).tolist()
+            self._rois = np.arange(0, self.region_number[-1] + 1).tolist()
 
         # select only those frames that match specific region of interest
         if roi not in [None, "None"]:
