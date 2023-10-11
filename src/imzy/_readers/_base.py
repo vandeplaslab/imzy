@@ -9,6 +9,7 @@ import numpy as np
 from koyo.spectrum import find_between_batch, find_between_ppm, find_between_tol, get_mzs_for_tol
 from koyo.typing import PathLike
 from koyo.utilities import get_min_max
+from loguru import logger
 from tqdm import tqdm
 
 from imzy.utilities import accumulate_peaks_centroid, accumulate_peaks_profile
@@ -414,6 +415,11 @@ class BaseReader:
             with suppress(FileNotFoundError):
                 os.remove(filename)
             tmp_filename.rename(filename)
+        except PermissionError:
+            logger.warning("Could not write cache file.")
+        finally:
+            with suppress(FileNotFoundError):
+                os.remove(tmp_filename)
 
     def _read_cache(self, filename: str, keys: ty.List[str]) -> ty.Dict[str, ty.Optional[np.ndarray]]:
         """Load cache metadata.
