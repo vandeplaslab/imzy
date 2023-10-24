@@ -61,7 +61,7 @@ test = [
     "pytest-cov",
 ]
 dev = [
-    "black==23.9.1",
+    "black==23.10.1",
     "ipython",
     "mypy",
     "pdbpp",
