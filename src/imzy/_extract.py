@@ -14,7 +14,7 @@ except ImportError:
     pass
 
 from imzy._readers import get_reader
-from imzy.utilities import accumulate_peaks_centroid, accumulate_peaks_profile
+from imzy.processing import accumulate_peaks_centroid, accumulate_peaks_profile, optimize_chunks_along_axis
 
 
 def check_zarr() -> None:
@@ -186,7 +186,6 @@ def create_centroids_hdf5(
 ) -> Path:
     """Create group with datasets inside."""
     from imzy._centroids import H5CentroidsStore
-    from imzy.utilities import optimize_chunks_along_axis
 
     if tol is None and ppm is None:
         raise ValueError("Either `tol` or `ppm` should be specified.")

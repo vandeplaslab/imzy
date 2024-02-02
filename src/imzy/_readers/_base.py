@@ -12,7 +12,7 @@ from koyo.utilities import get_min_max
 from loguru import logger
 from tqdm import tqdm
 
-from imzy.utilities import accumulate_peaks_centroid, accumulate_peaks_profile
+from imzy.processing import accumulate_peaks_centroid, accumulate_peaks_profile
 
 
 class BaseReader:
