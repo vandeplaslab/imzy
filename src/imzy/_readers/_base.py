@@ -239,6 +239,31 @@ class BaseReader:
                 res[i] = accumulate_peaks_profile(indices, y)
         return res
 
+    def _get_ions_yield(
+        self,
+        mzs: ty.Iterable[float],
+        tol: ty.Optional[float] = None,
+        ppm: ty.Optional[float] = None,
+        fill_value: float = np.nan,
+        silent: bool = False,
+    ) -> ty.Generator[np.ndarray, None, None]:
+        mzs = np.asarray(mzs)
+        mzs_min, mzs_max = get_mzs_for_tol(mzs, tol, ppm)
+        res = np.full((self.n_pixels, len(mzs)), dtype=np.float32, fill_value=fill_value)
+
+        n = self.n_pixels
+        if self.is_centroid:
+            for i, (x, y) in enumerate(self.spectra_iter(silent=silent)):
+                res[i] = accumulate_peaks_centroid(mzs_min, mzs_max, x, y)
+                yield i, n, None
+        else:
+            x, _ = self.get_spectrum(0)
+            indices = find_between_batch(x, mzs_min, mzs_max)
+            for i, (_, y) in enumerate(self.spectra_iter(silent=silent)):
+                res[i] = accumulate_peaks_profile(indices, y)
+                yield i, n, None
+        yield None, None, res
+
     def get_ion_images(
         self,
         mzs: ty.Iterable[float],

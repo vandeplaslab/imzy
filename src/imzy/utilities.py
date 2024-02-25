@@ -32,7 +32,8 @@ def get_rois_from_bruker_d(path: PathLike) -> ty.List[int]:
     # make sqlite connection
     conn = sqlite3.connect(path)
     cursor = conn.cursor()
-    cursor.execute("SELECT RegionNumber FROM MaldiFrameInfo ORDER BY RegionNumber DESC LIMIT 1")
+    # cursor.execute("SELECT RegionNumber FROM MaldiFrameInfo ORDER BY RegionNumber DESC LIMIT 1")
+    cursor.execute("SELECT RegionNumber FROM MaldiFrameInfo ORDER BY ROWID DESC LIMIT 1")
     last_roi = cursor.fetchone()[0]
     cursor.close()
     conn.close()
