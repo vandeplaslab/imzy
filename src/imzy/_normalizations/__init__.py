@@ -57,17 +57,18 @@ def extract_normalizations_hdf5(input_dir: PathLike, hdf_path: PathLike, silent:
     normalizations = compute_normalizations(input_dir, silent=silent)
 
     store = H5NormalizationStore(hdf_path, mode="a")
-    with store.open() as h5:
-        group = store._get_group(h5, store.NORMALIZATIONS_KEY)
-        for i, normalization in enumerate(normalization_names):
-            # get normalization
-            norm = normalizations[:, i]
-            # remove outliers
-            mask = _get_outlier_mask(norm, 2)
-            norm[mask] = np.median(norm[mask])
-            # save the normalizations as 'multiplier' version so it's easier to apply
-            group[normalization][:] = 1 / (norm / np.median(norm))
-        store.flush()
+    with np.errstate(invalid="ignore", divide="ignore"):
+        with store.open() as h5:
+            group = store._get_group(h5, store.NORMALIZATIONS_KEY)
+            for i, normalization in enumerate(normalization_names):
+                # get normalization
+                norm = normalizations[:, i]
+                # remove outliers
+                mask = _get_outlier_mask(norm, 2)
+                norm[mask] = np.median(norm[mask])
+                # save the normalizations as 'multiplier' version so it's easier to apply
+                group[normalization][:] = 1 / (norm / np.median(norm))
+            store.flush()
     return hdf_path
 
 
@@ -104,8 +105,7 @@ def compute_normalizations(input_dir: Path, silent: bool = False) -> np.ndarray:
 def calculate_normalizations(spectrum: np.ndarray) -> np.ndarray:
     """Calculate various normalizations.
 
-    This function expects spectrum in the form
-
+    This function expects float32 spectrum.
     """
     px_norms = np.zeros(12, dtype=np.float32)
     px_norms[0] = np.sum(spectrum)  # TIC
