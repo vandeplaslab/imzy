@@ -1,4 +1,5 @@
 """Normalizations."""
+import warnings
 from pathlib import Path
 
 import numba
@@ -41,6 +42,15 @@ def create_normalizations_hdf5(input_dir: PathLike, hdf_path: PathLike) -> Path:
     return hdf_path
 
 
+def _get_outlier_mask(norm: np.ndarray, n_orders: int = 2) -> np.ndarray:
+    """Retrieve normalization and determine outliers."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        norm = np.log10(norm + 1)
+        mask = norm < (norm.max() - n_orders)
+    return mask
+
+
 def extract_normalizations_hdf5(input_dir: PathLike, hdf_path: PathLike, silent: bool = False) -> Path:
     """Extract normalizations from hdf5."""
     normalization_names = get_normalizations()
@@ -50,8 +60,13 @@ def extract_normalizations_hdf5(input_dir: PathLike, hdf_path: PathLike, silent:
     with store.open() as h5:
         group = store._get_group(h5, store.NORMALIZATIONS_KEY)
         for i, normalization in enumerate(normalization_names):
+            # get normalization
             norm = normalizations[:, i]
-            group[normalization][:] = norm
+            # remove outliers
+            mask = _get_outlier_mask(norm, 2)
+            norm[mask] = np.median(norm[mask])
+            # save the normalizations as 'multiplier' version so it's easier to apply
+            group[normalization][:] = 1 / (norm / np.median(norm))
     store.flush()
     return hdf_path
 
