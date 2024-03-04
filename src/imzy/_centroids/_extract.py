@@ -1,4 +1,3 @@
-"""Methods to handle data extraction from any reader."""
 import typing as ty
 from pathlib import Path
 
@@ -8,13 +7,19 @@ from koyo.typing import PathLike
 from koyo.utilities import chunks
 from tqdm import tqdm
 
+from imzy import get_reader
+from imzy._typing import SpatialInfo
+from imzy.processing import accumulate_peaks_centroid, accumulate_peaks_profile, optimize_chunks_along_axis
+from imzy.utilities import _safe_rmtree, parse_to_attribute
+
 try:
     import hdf5plugin
 except ImportError:
-    pass
 
-from imzy._readers import get_reader
-from imzy.processing import accumulate_peaks_centroid, accumulate_peaks_profile, optimize_chunks_along_axis
+    class hdf5plugin:
+        """Dummy class."""
+
+        LZ4 = lambda *args, **kwargs: {}
 
 
 def check_zarr() -> None:
@@ -154,15 +159,6 @@ def rechunk_zarr_array(
     _safe_rmtree(zarr_path)  # remove the temporary array
 
 
-def check_hdf5() -> None:
-    """Check whether Zarr, dask and rechunker are installed."""
-    try:
-        import h5py
-        import hdf5plugin
-    except ImportError:
-        raise ImportError("Please install `h5py` and `hdf5plugins` to continue. You can do `pip install imzy[hdf5]")
-
-
 def get_chunk_info(n_pixels: int, n_peaks: int, max_mem: float = 512) -> ty.Dict[int, np.ndarray]:
     """Get chunk size information for particular dataset."""
     import math
@@ -183,6 +179,7 @@ def create_centroids_hdf5(
     ppm: ty.Optional[float] = None,
     ys: ty.Optional[np.ndarray] = None,
     chunk_info: ty.Optional[ty.Dict[int, np.ndarray]] = None,
+    spatial_info: ty.Optional[SpatialInfo] = None,
 ) -> Path:
     """Create group with datasets inside."""
     from imzy._centroids import H5CentroidsStore
@@ -216,6 +213,9 @@ def create_centroids_hdf5(
             store._add_data_to_group(group, "mzs_max", mzs_max, maxshape=(None,), dtype=mzs_max.dtype)
         if ys is not None:
             store._add_data_to_group(group, "ys", ys, maxshape=(None,), dtype=ys.dtype)
+        if spatial_info is not None:
+            for key, value in spatial_info.items():
+                store._add_data_to_group(group, key, value, dtype=value.dtype)
         if chunk_info is None:
             store._add_data_to_group(
                 group,
@@ -288,26 +288,3 @@ def extract_centroids_hdf5(
             else:
                 temp[i] = accumulate_peaks_profile(extract_indices, y)
         store.update(temp, indices, chunk_id)
-
-
-def _safe_rmtree(path):
-    from shutil import rmtree
-
-    try:
-        rmtree(path)
-    except (OSError, FileNotFoundError):
-        pass
-
-
-def parse_from_attribute(attribute):
-    """Parse attribute from cache."""
-    if isinstance(attribute, str) and attribute == "__NONE__":
-        attribute = None
-    return attribute
-
-
-def parse_to_attribute(attribute):
-    """Parse attribute to cache."""
-    if attribute is None:
-        attribute = "__NONE__"
-    return attribute

@@ -298,7 +298,12 @@ class BaseReader:
         silent: bool = False,
     ) -> Path:
         """Export many ion images for specified m/z values (+ tolerance) to Zarr array."""
-        from imzy._extract import check_zarr, create_centroids_zarr, extract_centroids_zarr, rechunk_zarr_array
+        from imzy._centroids._extract import (
+            check_zarr,
+            create_centroids_zarr,
+            extract_centroids_zarr,
+            rechunk_zarr_array,
+        )
 
         if not as_flat:
             raise ValueError("Only flat images are supported at the moment.")
@@ -361,7 +366,8 @@ class BaseReader:
         silent: bool = False,
     ) -> Path:
         """Export many ion images for specified m/z values (+ tolerance) to a HDF5 store."""
-        from imzy._extract import check_hdf5, create_centroids_hdf5, extract_centroids_hdf5, get_chunk_info
+        from imzy._centroids._extract import create_centroids_hdf5, extract_centroids_hdf5, get_chunk_info
+        from imzy._hdf5_mixin import check_hdf5
 
         if not as_flat:
             raise ValueError("Only flat images are supported at the moment.")
@@ -396,6 +402,11 @@ class BaseReader:
             ppm=ppm,
             tol=tol,
             chunk_info=chunk_info,
+            spatial_info={
+                "x_coordinates": self.x_coordinates,
+                "y_coordinates": self.y_coordinates,
+                "shape": self.image_shape,
+            },
         )
         extract_centroids_hdf5(
             input_dir=self.path,
@@ -405,6 +416,26 @@ class BaseReader:
             indices=self.pixels,
             silent=silent,
         )
+        return hdf_path
+
+    extract_centroids_hdf5 = to_hdf5
+
+    def extract_normalizations_hdf5(self, hdf_path: PathLike, silent: bool = False):
+        """Extract normalizations."""
+        from imzy._hdf5_mixin import check_hdf5
+        from imzy._normalizations import create_normalizations_hdf5, extract_normalizations_hdf5
+
+        check_hdf5()
+        hdf_path = Path(hdf_path)
+        if not hdf_path.suffix == ".h5":
+            hdf_path = hdf_path.with_suffix(".h5")
+        if not hdf_path.exists():
+            hdf_path = create_normalizations_hdf5(self.path, hdf_path)
+            hdf_path = extract_normalizations_hdf5(
+                input_dir=self.path,
+                hdf_path=hdf_path,
+                silent=silent,
+            )
         return hdf_path
 
     def spectra_iter(

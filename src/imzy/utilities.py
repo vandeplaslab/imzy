@@ -38,3 +38,26 @@ def get_rois_from_bruker_d(path: PathLike) -> ty.List[int]:
     cursor.close()
     conn.close()
     return list(range(0, last_roi + 1))
+
+
+def _safe_rmtree(path):
+    from shutil import rmtree
+
+    try:
+        rmtree(path)
+    except (OSError, FileNotFoundError):
+        pass
+
+
+def parse_from_attribute(attribute):
+    """Parse attribute from cache."""
+    if isinstance(attribute, str) and attribute == "__NONE__":
+        attribute = None
+    return attribute
+
+
+def parse_to_attribute(attribute):
+    """Parse attribute to cache."""
+    if attribute is None:
+        attribute = "__NONE__"
+    return attribute

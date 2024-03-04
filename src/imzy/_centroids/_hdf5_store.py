@@ -4,6 +4,8 @@ from contextlib import contextmanager
 
 import numpy as np
 
+from imzy._hdf5_mixin import HDF5Mixin
+
 try:
     import h5py
 except ImportError:
@@ -15,7 +17,7 @@ from koyo.utilities import find_nearest_index
 from imzy._centroids._base import BaseCentroids
 
 
-class H5CentroidsStore(BaseCentroids):
+class H5CentroidsStore(HDF5Mixin, BaseCentroids):
     """HDF5-centroids."""
 
     # Private attributes
@@ -38,13 +40,11 @@ class H5CentroidsStore(BaseCentroids):
         mode: str = "a",
     ):
         super().__init__(xyz_coordinates, pixel_index, image_shape)
-        assert h5py is not None, "h5py is not installed."
-
-        self.path = path
-        self.mode = mode
+        self._init_hdf5(path, mode)
 
     @property
-    def is_low_mem(self):
+    def is_low_mem(self) -> bool:
+        """Get low memory flag."""
         return self._low_mem
 
     @is_low_mem.setter
@@ -55,6 +55,7 @@ class H5CentroidsStore(BaseCentroids):
 
     @property
     def is_chunked(self) -> bool:
+        """Get chunked flag."""
         if self._is_chunked is None:
             with self.open() as h5:
                 self._is_chunked = h5[self.PEAKS_KEY].attrs.get("is_chunked")
@@ -127,79 +128,6 @@ class H5CentroidsStore(BaseCentroids):
             with self.open() as h5:
                 h5[self.PEAKS_ARRAY_KEY][framelist] = array
                 h5.flush()
-
-    @contextmanager
-    def open(self, mode: ty.Optional[str] = None):
-        """Safely open storage."""
-        if mode is None:
-            mode = self.mode
-        try:
-            f_ptr = h5py.File(self.path, mode=mode, rdcc_nbytes=1024 * 1024 * 4)
-        except FileExistsError as err:
-            raise err
-        try:
-            yield f_ptr
-        finally:
-            f_ptr.close()
-
-    def flush(self):
-        """Flush data to disk."""
-        with self.open() as h5:
-            h5.flush()
-
-    @staticmethod
-    def _get_group(hdf, group_name: str, flush: bool = True):
-        try:
-            group = hdf[group_name]
-        except KeyError:
-            group = hdf.create_group(group_name)
-            if flush:
-                hdf.flush()
-        return group
-
-    @staticmethod
-    def _add_data_to_group(
-        group_obj,
-        dataset_name,
-        data,
-        dtype,
-        chunks=None,
-        maxshape=None,
-        compression=None,
-        compression_opts=None,
-        shape=None,
-    ):
-        """Add data to group."""
-        replaced_dataset = False
-
-        if dtype is None:
-            if hasattr(data, "dtype"):
-                dtype = data.dtype
-        if shape is None:
-            if hasattr(data, "shape"):
-                shape = data.shape
-
-        if dataset_name in list(group_obj.keys()):
-            if group_obj[dataset_name].dtype == dtype:
-                try:
-                    group_obj[dataset_name][:] = data
-                    replaced_dataset = True
-                except TypeError:
-                    del group_obj[dataset_name]
-            else:
-                del group_obj[dataset_name]
-
-        if not replaced_dataset:
-            group_obj.create_dataset(
-                dataset_name,
-                data=data,
-                dtype=dtype,
-                compression=compression,
-                chunks=chunks,
-                maxshape=maxshape,
-                compression_opts=compression_opts,
-                shape=shape,
-            )
 
 
 class LazyPeaksProxy:
