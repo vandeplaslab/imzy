@@ -430,7 +430,7 @@ class BaseReader:
         if not hdf_path.suffix == ".h5":
             hdf_path = hdf_path.with_suffix(".h5")
         if not hdf_path.exists():
-            hdf_path = create_normalizations_hdf5(self.path, hdf_path)
+            # hdf_path = create_normalizations_hdf5(self.path, hdf_path)
             hdf_path = extract_normalizations_hdf5(
                 input_dir=self.path,
                 hdf_path=hdf_path,
