@@ -23,6 +23,7 @@ class H5CentroidsStore(HDF5Mixin, BaseCentroids):
     # Private attributes
     PEAKS_KEY = "Array"
     PEAKS_ARRAY_KEY = "Array/array"
+    SPATIAL_KEY = "Misc/Spatial"
 
     # Cache attributes
     _chunk_info = None

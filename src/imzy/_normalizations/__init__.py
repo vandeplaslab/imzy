@@ -67,7 +67,7 @@ def extract_normalizations_hdf5(input_dir: PathLike, hdf_path: PathLike, silent:
             norm[mask] = np.median(norm[mask])
             # save the normalizations as 'multiplier' version so it's easier to apply
             group[normalization][:] = 1 / (norm / np.median(norm))
-    store.flush()
+        store.flush()
     return hdf_path
 
 
@@ -96,6 +96,7 @@ def compute_normalizations(input_dir: Path, silent: bool = False) -> np.ndarray:
         )
     ):
         norm_array[i] = calculate_normalizations(y.astype(np.float32))
+    norm_array = np.nan_to_num(norm_array, nan=1.0)
     return norm_array
 
 

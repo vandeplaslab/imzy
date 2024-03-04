@@ -9,4 +9,5 @@ class SpatialInfo(ty.TypedDict):
 
     x_coordinates: np.ndarray
     y_coordinates: np.ndarray
-    shape: ty.Tuple[int, int]
+    image_shape: ty.Tuple[int, int]
+    pixel_size: float

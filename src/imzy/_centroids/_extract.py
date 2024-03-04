@@ -213,9 +213,6 @@ def create_centroids_hdf5(
             store._add_data_to_group(group, "mzs_max", mzs_max, maxshape=(None,), dtype=mzs_max.dtype)
         if ys is not None:
             store._add_data_to_group(group, "ys", ys, maxshape=(None,), dtype=ys.dtype)
-        if spatial_info is not None:
-            for key, value in spatial_info.items():
-                store._add_data_to_group(group, key, value, dtype=value.dtype)
         if chunk_info is None:
             store._add_data_to_group(
                 group,
@@ -240,6 +237,11 @@ def create_centroids_hdf5(
                     dtype=np.float32,
                     **compression,
                 )
+        group = store._get_group(h5, store.SPATIAL_KEY)
+        if spatial_info is not None:
+            group.attrs["pixel_size"] = spatial_info.get("pixel_size", 1.0)
+            for key, value in spatial_info.items():
+                store._add_data_to_group(group, key, value, dtype=value.dtype)
     return Path(hdf_path)
 
 
