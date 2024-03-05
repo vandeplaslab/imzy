@@ -239,7 +239,7 @@ def create_centroids_hdf5(
                 )
         group = store._get_group(h5, store.SPATIAL_KEY)
         if spatial_info is not None:
-            group.attrs["pixel_size"] = spatial_info.get("pixel_size", 1.0)
+            group.attrs["pixel_size"] = spatial_info.pop("pixel_size", 1.0)
             for key, value in spatial_info.items():
                 store._add_data_to_group(group, key, value, dtype=value.dtype)
     return Path(hdf_path)
@@ -280,8 +280,8 @@ def extract_centroids_hdf5(
                 indices,
                 disable=silent,
                 desc=f"Extracting {n_peaks} peaks (chunk={chunk_id+1}/{n_chunks})",
-                miniters=25,
-                mininterval=0.2,
+                miniters=250,
+                mininterval=2,
             )
         ):
             x, y = reader[index]

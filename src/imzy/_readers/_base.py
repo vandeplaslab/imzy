@@ -405,7 +405,7 @@ class BaseReader:
             spatial_info={
                 "x_coordinates": self.x_coordinates,
                 "y_coordinates": self.y_coordinates,
-                "image_shape": self.image_shape,
+                "image_shape": np.asarray(self.image_shape),
                 "pixel_size": self.pixel_size,
             },
         )
