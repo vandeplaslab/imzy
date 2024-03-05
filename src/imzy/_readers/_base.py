@@ -424,7 +424,8 @@ class BaseReader:
     def extract_normalizations_hdf5(self, hdf_path: PathLike, silent: bool = False):
         """Extract normalizations."""
         from imzy._hdf5_mixin import check_hdf5
-        from imzy._normalizations import create_normalizations_hdf5, extract_normalizations_hdf5
+        from imzy._normalizations._extract import extract_normalizations_hdf5
+        from imzy._normalizations._extract import create_normalizations_hdf5
 
         check_hdf5()
         hdf_path = Path(hdf_path)
