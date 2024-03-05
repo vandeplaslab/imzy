@@ -35,7 +35,7 @@ def create_normalizations_hdf5(input_dir: PathLike, hdf_path: PathLike) -> Path:
 
     store = H5NormalizationStore(hdf_path, mode="a")
     with store.open() as h5:
-        group = store._get_group(h5, store.NORMALIZATIONS_KEY)
+        group = store._get_group(h5, store.NORMALIZATION_KEY)
         for normalization in get_normalizations():
             group.create_dataset(normalization, shape=(n_pixels,), dtype=np.float32, **compression)
     store.flush()
