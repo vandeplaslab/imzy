@@ -59,7 +59,7 @@ def extract_normalizations_hdf5(input_dir: PathLike, hdf_path: PathLike, silent:
     store = H5NormalizationStore(hdf_path, mode="a")
     with np.errstate(invalid="ignore", divide="ignore"):
         with store.open() as h5:
-            group = store._get_group(h5, store.NORMALIZATIONS_KEY)
+            group = store._get_group(h5, store.NORMALIZATION_KEY)
             for i, normalization in enumerate(normalization_names):
                 # get normalization
                 norm = normalizations[:, i]

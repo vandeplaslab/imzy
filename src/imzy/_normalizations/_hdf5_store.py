@@ -38,8 +38,9 @@ class H5NormalizationStore(HDF5Mixin):
             raise KeyError(f"Normalization '{name}' not found in store.")
         return normalization
 
-    def normalize(self, array: np.ndarray, name: str, as_median: bool = True, **kwargs) -> np.ndarray:
+    def normalize(self, array: np.ndarray, name: str, **kwargs) -> np.ndarray:
         """Normalize array."""
+        return self._single_normalize(array, name, **kwargs)
 
     def _single_normalize(self, array: np.ndarray, norm: str, **kwargs) -> np.ndarray:
         """Apply normalization to an array.
