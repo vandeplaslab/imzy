@@ -42,7 +42,8 @@ class H5CentroidsStore(HDF5Mixin, BaseCentroids):
     _is_chunked = None
     _low_mem: bool = True
     _ion_labels = None
-    _mz, _bins, _ppm, _eppm, _mda = None, None, None, None, None
+    _tol, _ppm = None, None
+    unique_id: str = ""
 
     def __init__(
         self,
