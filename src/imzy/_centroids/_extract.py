@@ -166,7 +166,9 @@ def get_chunk_info(n_pixels: int, n_peaks: int, max_mem: float = 512) -> ty.Dict
 
     _max_mem = (float(n_pixels) * n_peaks * 4) / (1024**2)  # assume 4 bytes per element
     n_tasks = math.ceil(_max_mem / max_mem) or 1
-    return dict(enumerate(list(chunks(np.arange(n_pixels), n_tasks=n_tasks))))
+    chunk_info = dict(enumerate(list(chunks(np.arange(n_pixels), n_tasks=n_tasks))))
+    assert sum(len(v) for v in chunk_info.values()) == n_pixels, "Chunking failed"
+    return chunk_info
 
 
 def create_centroids_hdf5(

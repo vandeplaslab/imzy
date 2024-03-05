@@ -43,6 +43,7 @@ class H5CentroidsStore(HDF5Mixin, BaseCentroids):
     _low_mem: bool = True
     _ion_labels = None
     _tol, _ppm = None, None
+    _peaks = None
     unique_id: str = ""
 
     def __init__(
@@ -117,6 +118,27 @@ class H5CentroidsStore(HDF5Mixin, BaseCentroids):
             with self.open() as h5:
                 group = h5[self.PEAKS_KEY]
                 yield group["array"]
+
+    @property
+    def peaks(self) -> np.ndarray:
+        """Load peaks data.
+
+        This function uses custom data loading to speed things up. Because we chunk the ion images along one dimension,
+        it becomes very slow to read the entire data in one go. It can be optimized a little by read the data one image
+        at a time and then building 2d array.
+        """
+        if self._peaks is None:
+            if self.is_chunked:
+                if self._proxy is None:
+                    self._proxy = LazyPeaksProxy(self)
+                self._peaks = self._proxy.peaks()
+            else:
+                array = np.zeros(self.shape, dtype=self.dtype)
+                with self.open("r") as h5:
+                    for sl in h5[self.PEAKS_ARRAY_KEY].iter_chunks():
+                        array[sl] = h5[self.PEAKS_ARRAY_KEY][sl]
+                self._peaks = array
+        return self._peaks
 
     @property
     def tol(self) -> int:
@@ -216,7 +238,7 @@ class LazyPeaksProxy:
     def shape(self) -> ty.Tuple[int, int]:
         """Return shape."""
         chunk_info = self.obj.chunk_info
-        n_px = chunk_info[max(chunk_info.keys())].max()
+        n_px = sum(len(indices) for indices in chunk_info.values())
         return n_px, self.obj.n_peaks
 
     @property

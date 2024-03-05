@@ -10,6 +10,15 @@ except ImportError:
     h5py = None
 from koyo.typing import PathLike
 
+try:
+    import hdf5plugin
+except ImportError:
+
+    class hdf5plugin:
+        """Dummy class."""
+
+        LZ4 = lambda *args, **kwargs: {}
+
 
 def parse_from_attribute(attribute):
     """Parse attribute from cache."""

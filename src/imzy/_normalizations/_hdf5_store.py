@@ -40,7 +40,11 @@ class H5NormalizationStore(HDF5Mixin):
 
     def normalize(self, array: np.ndarray, name: str, **kwargs) -> np.ndarray:
         """Normalize array."""
-        return self._single_normalize(array, name, **kwargs)
+        array = np.asanyarray(array)
+        if array.ndim < 2:  # or is_single_2d(self.mobj, array):
+            return self._single_normalize(array, name, **kwargs)
+        else:
+            return self._batch_normalize(array, name, **kwargs)
 
     def _single_normalize(self, array: np.ndarray, norm: str, **kwargs) -> np.ndarray:
         """Apply normalization to an array.
@@ -64,6 +68,25 @@ class H5NormalizationStore(HDF5Mixin):
             array = np.multiply(array, norm_array)
         except ValueError:
             logger.warning(f"Normalization '{norm}' not found. Skipping normalization.")
+        return _postprocess(array)
+
+    def _batch_normalize(
+        self,
+        array: np.ndarray,
+        norm: str,
+        **kwargs,
+    ):
+        if array.ndim < 2:
+            raise ValueError("Expected two-dimensional array of 'N pixels * M peaks'.")
+
+        norm_array = self.get_normalization(
+            norm,
+            as_multiplier=True,
+        )
+        if array.ndim == 2:
+            if norm_array.shape[0] != array.shape[0]:
+                raise ValueError("The input array does not have the same number of pixels as the normalization vector.")
+        array = np.multiply(array.T, norm_array).T
         return _postprocess(array)
 
 
