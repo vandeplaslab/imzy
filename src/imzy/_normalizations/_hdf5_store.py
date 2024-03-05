@@ -1,5 +1,6 @@
 """HDF5 store for normalizations."""
 import numpy as np
+from koyo.typing import PathLike
 
 from imzy._hdf5_mixin import HDF5Mixin
 
@@ -9,7 +10,7 @@ class H5NormalizationStore(HDF5Mixin):
 
     NORMALIZATIONS_KEY: str = "Normalizations"
 
-    def __init__(self, path: str, mode: str = "a"):
+    def __init__(self, path: PathLike, mode: str = "a"):
         self._init_hdf5(path, mode)
 
     def get_normalization(self) -> np.ndarray:
