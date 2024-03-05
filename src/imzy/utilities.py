@@ -49,15 +49,4 @@ def _safe_rmtree(path):
         pass
 
 
-def parse_from_attribute(attribute):
-    """Parse attribute from cache."""
-    if isinstance(attribute, str) and attribute == "__NONE__":
-        attribute = None
-    return attribute
 
-
-def parse_to_attribute(attribute):
-    """Parse attribute to cache."""
-    if attribute is None:
-        attribute = "__NONE__"
-    return attribute

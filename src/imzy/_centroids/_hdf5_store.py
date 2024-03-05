@@ -17,6 +17,16 @@ from koyo.utilities import find_nearest_index
 from imzy._centroids._base import BaseCentroids
 
 
+def format_ppm(mz: float, ppm: float):
+    """Create formatted ppm'¬s."""
+    return f"{mz:.3f} Da ± {ppm:.1f}ppm"
+
+
+def format_tol(mz: float, mda: float):
+    """Create formatted label."""
+    return f"{mz:.3f} Da ± {mda:.3f}Da"
+
+
 class H5CentroidsStore(HDF5Mixin, BaseCentroids):
     """HDF5-centroids."""
 
@@ -31,6 +41,8 @@ class H5CentroidsStore(HDF5Mixin, BaseCentroids):
     _proxy = None
     _is_chunked = None
     _low_mem: bool = True
+    _ion_labels = None
+    _mz, _bins, _ppm, _eppm, _mda = None, None, None, None, None
 
     def __init__(
         self,
@@ -104,6 +116,50 @@ class H5CentroidsStore(HDF5Mixin, BaseCentroids):
             with self.open() as h5:
                 group = h5[self.PEAKS_KEY]
                 yield group["array"]
+
+    @property
+    def tol(self) -> int:
+        """Get Da tolerance the data was extracted at."""
+        if self._tol is None:
+            self._tol = self.get_attr(self.PEAKS_KEY, "tol")
+        return self._tol
+
+    @property
+    def ppm(self) -> float:
+        """Get ppm/bins the data was extracted at."""
+        if self._ppm is None:
+            self._ppm = self.get_attr(self.PEAKS_KEY, "ppm")
+        return self._ppm
+
+    def _setup_labels(self):
+        """Setup labels."""
+        if self._ion_labels is None:
+            mzs = self.xs
+            ppm = self.ppm
+            tol = self.tol
+            self._ion_labels = {
+                "ppm": [format_ppm(mz, ppm) for mz in mzs] if ppm else [],
+                "tol": [format_tol(mz, tol) for i, mz in enumerate(mzs)] if tol is not None else [],
+            }
+            if not self._ion_labels["ppm"]:
+                self._ion_labels["ppm"] = self._ion_labels["tol"]
+
+    def index_to_name(self, index: int, effective: bool = True, mz: bool = False):
+        """Convert index to ion name."""
+        if self._ion_labels is None:
+            self._setup_labels()
+        return self._ion_labels["ppm"][index]
+
+    @property
+    def labels(self) -> ty.Tuple[np.ndarray, ty.Optional[np.ndarray], ty.Optional[np.ndarray]]:
+        """Return all available labels."""
+        return self.xs, None, None
+
+    def lazy_iter(self):
+        """Lazily yield ion images."""
+        with self.lazy_peaks() as peaks:
+            for i, mz in enumerate(self.xs):
+                yield mz, peaks[:, i]
 
     def get_ion(self, value: ty.Union[int, float]) -> np.ndarray:
         """Retrieve single ion."""

@@ -11,6 +11,20 @@ except ImportError:
 from koyo.typing import PathLike
 
 
+def parse_from_attribute(attribute):
+    """Parse attribute from cache."""
+    if isinstance(attribute, str) and attribute == "__NONE__":
+        attribute = None
+    return attribute
+
+
+def parse_to_attribute(attribute):
+    """Parse attribute to cache."""
+    if attribute is None:
+        attribute = "__NONE__"
+    return attribute
+
+
 def check_hdf5() -> None:
     """Check whether Zarr, dask and rechunker are installed."""
     try:
@@ -104,3 +118,16 @@ class HDF5Mixin:
                 compression_opts=compression_opts,
                 shape=shape,
             )
+
+    def get_attr(self, dataset_name, attr: str, default=None):
+        """Safely retrieve 1 attribute."""
+        with self.open("r") as h5:
+            group = self._get_group(h5, dataset_name)
+            value = parse_from_attribute(group.attrs.get(attr, default))
+            return value
+
+    def get_array(self, dataset_name: str, key: str) -> np.ndarray:
+        """Safely retrieve 1 array."""
+        with self.open("r") as h5:
+            group = self._get_group(h5, dataset_name)
+            return group[key][:]

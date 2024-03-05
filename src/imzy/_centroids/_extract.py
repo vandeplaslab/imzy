@@ -8,9 +8,10 @@ from koyo.utilities import chunks
 from tqdm import tqdm
 
 from imzy import get_reader
+from imzy._hdf5_mixin import parse_to_attribute
 from imzy._typing import SpatialInfo
 from imzy.processing import accumulate_peaks_centroid, accumulate_peaks_profile, optimize_chunks_along_axis
-from imzy.utilities import _safe_rmtree, parse_to_attribute
+from imzy.utilities import _safe_rmtree
 
 try:
     import hdf5plugin
