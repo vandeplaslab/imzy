@@ -18,7 +18,7 @@ import numpy as np
 from koyo.typing import PathLike
 from tqdm import tqdm
 
-from imzy._normalizations import H5NormalizationStore
+from imzy._normalizations._hdf5_store import H5NormalizationStore
 
 
 def get_normalizations() -> list[str]:
