@@ -1,4 +1,5 @@
 """Base reader."""
+
 import os
 import typing as ty
 from contextlib import suppress
@@ -130,6 +131,16 @@ class BaseReader:
     def image_shape(self) -> ty.Tuple[int, int]:
         """Return shape of the image."""
         return self.y_size, self.x_size
+
+    def index_to_xy_coordinates(self, index: int) -> ty.Tuple[int, int]:
+        """Convert index to x, y coordinates."""
+        return self.x_coordinates[index], self.y_coordinates[index]
+
+    def xy_coordinates_to_index(self, x: int, y: int) -> int:
+        """Convert x, y coordinates to index."""
+        indices = np.where((self.x_coordinates == x) & (self.y_coordinates == y))[0]
+        if indices.size > 0:
+            return indices[0]
 
     @property
     def xyz_coordinates(self) -> np.ndarray:
