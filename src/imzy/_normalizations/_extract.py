@@ -192,5 +192,4 @@ def calculate_normalizations_optimized(spectrum: np.ndarray) -> np.ndarray:
     # For ranges, we can combine conditions
     px_norms[7] = np.sum(spectrum[condition_q5 & condition_q95])  # 5-95% TIC
     px_norms[8] = np.sum(spectrum[condition_q10 & condition_q90])  # 10-90% TIC
-
     return px_norms
