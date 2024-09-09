@@ -127,6 +127,10 @@ class BaseReader:
             im[i, self.y_coordinates, self.x_coordinates] = array[:, i]
         return im
 
+    def flatten(self, array: np.ndarray) -> np.ndarray:
+        """Flatten 2D image."""
+        return array[self.y_coordinates, self.x_coordinates]
+
     @property
     def image_shape(self) -> ty.Tuple[int, int]:
         """Return shape of the image."""
