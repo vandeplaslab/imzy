@@ -34,6 +34,9 @@ class H5NormalizationStore(HDF5Mixin):
             name = f"{self.NORMALIZATION_KEY}/{name}"
         try:
             normalization = self.get_array(name, "normalization")
+        except ValueError:
+            _, name = name.split("/")
+            normalization = self.get_array(self.NORMALIZATION_KEY, name)
         except KeyError:
             raise KeyError(f"Normalization '{name}' not found in store.")
         return normalization
