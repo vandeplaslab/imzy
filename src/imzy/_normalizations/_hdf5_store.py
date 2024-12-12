@@ -88,7 +88,10 @@ class H5NormalizationStore(HDF5Mixin):
         )
         if array.ndim == 2:
             if norm_array.shape[0] != array.shape[0]:
-                raise ValueError("The input array does not have the same number of pixels as the normalization vector.")
+                raise ValueError(
+                    f"The input array does not have the same number of pixels as the normalization vector."
+                    f" (norm={norm_array.shape}; array={array.shape})"
+                )
         array = np.multiply(array.T, norm_array).T
         return _postprocess(array)
 
