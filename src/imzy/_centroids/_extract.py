@@ -1,4 +1,3 @@
-"""Methods to handle data extraction from any reader."""
 import typing as ty
 from pathlib import Path
 
@@ -8,13 +7,20 @@ from koyo.typing import PathLike
 from koyo.utilities import chunks
 from tqdm import tqdm
 
+from imzy import get_reader
+from imzy._hdf5_mixin import parse_to_attribute
+from imzy._typing import SpatialInfo
+from imzy.processing import accumulate_peaks_centroid, accumulate_peaks_profile, optimize_chunks_along_axis
+from imzy.utilities import _safe_rmtree
+
 try:
     import hdf5plugin
 except ImportError:
-    pass
 
-from imzy._readers import get_reader
-from imzy.processing import accumulate_peaks_centroid, accumulate_peaks_profile, optimize_chunks_along_axis
+    class hdf5plugin:
+        """Dummy class."""
+
+        LZ4 = lambda *args, **kwargs: {}
 
 
 def check_zarr() -> None:
@@ -154,22 +160,15 @@ def rechunk_zarr_array(
     _safe_rmtree(zarr_path)  # remove the temporary array
 
 
-def check_hdf5() -> None:
-    """Check whether Zarr, dask and rechunker are installed."""
-    try:
-        import h5py
-        import hdf5plugin
-    except ImportError:
-        raise ImportError("Please install `h5py` and `hdf5plugins` to continue. You can do `pip install imzy[hdf5]")
-
-
 def get_chunk_info(n_pixels: int, n_peaks: int, max_mem: float = 512) -> ty.Dict[int, np.ndarray]:
     """Get chunk size information for particular dataset."""
     import math
 
     _max_mem = (float(n_pixels) * n_peaks * 4) / (1024**2)  # assume 4 bytes per element
     n_tasks = math.ceil(_max_mem / max_mem) or 1
-    return dict(enumerate(list(chunks(np.arange(n_pixels), n_tasks=n_tasks))))
+    chunk_info = dict(enumerate(list(chunks(np.arange(n_pixels), n_tasks=n_tasks))))
+    assert sum(len(v) for v in chunk_info.values()) == n_pixels, "Chunking failed"
+    return chunk_info
 
 
 def create_centroids_hdf5(
@@ -183,6 +182,7 @@ def create_centroids_hdf5(
     ppm: ty.Optional[float] = None,
     ys: ty.Optional[np.ndarray] = None,
     chunk_info: ty.Optional[ty.Dict[int, np.ndarray]] = None,
+    spatial_info: ty.Optional[SpatialInfo] = None,
 ) -> Path:
     """Create group with datasets inside."""
     from imzy._centroids import H5CentroidsStore
@@ -240,6 +240,11 @@ def create_centroids_hdf5(
                     dtype=np.float32,
                     **compression,
                 )
+        group = store._get_group(h5, store.SPATIAL_KEY)
+        if spatial_info is not None:
+            group.attrs["pixel_size"] = spatial_info.pop("pixel_size", 1.0)
+            for key, value in spatial_info.items():
+                store._add_data_to_group(group, key, value, dtype=value.dtype)
     return Path(hdf_path)
 
 
@@ -278,8 +283,8 @@ def extract_centroids_hdf5(
                 indices,
                 disable=silent,
                 desc=f"Extracting {n_peaks} peaks (chunk={chunk_id+1}/{n_chunks})",
-                miniters=25,
-                mininterval=0.2,
+                miniters=250,
+                mininterval=2,
             )
         ):
             x, y = reader[index]
@@ -288,26 +293,3 @@ def extract_centroids_hdf5(
             else:
                 temp[i] = accumulate_peaks_profile(extract_indices, y)
         store.update(temp, indices, chunk_id)
-
-
-def _safe_rmtree(path):
-    from shutil import rmtree
-
-    try:
-        rmtree(path)
-    except (OSError, FileNotFoundError):
-        pass
-
-
-def parse_from_attribute(attribute):
-    """Parse attribute from cache."""
-    if isinstance(attribute, str) and attribute == "__NONE__":
-        attribute = None
-    return attribute
-
-
-def parse_to_attribute(attribute):
-    """Parse attribute to cache."""
-    if attribute is None:
-        attribute = "__NONE__"
-    return attribute

@@ -179,6 +179,11 @@ class IMZMLReader(BaseReader):
             im[i, self.y_coordinates - 1, self.x_coordinates - 1] = array[:, i]
         return im
 
+    def flatten(self, image: np.ndarray) -> np.ndarray:
+        """Retrieve original vector of intensities from an image."""
+        array = image[self.y_coordinates - 1, self.x_coordinates - 1]
+        return array
+
     def get_summed_spectrum(self, indices: ty.Iterable[int], silent: bool = False) -> ty.Tuple[np.ndarray, np.ndarray]:
         """Sum pixel data to produce summed mass spectrum."""
         indices = np.asarray(indices)
@@ -269,8 +274,9 @@ class IMZMLReader(BaseReader):
                 mz_bytes = f_ptr.read(mz_l * self._mz_size)
                 f_ptr.seek(int_o)
                 int_bytes = f_ptr.read(int_l * self._int_size)
-                yield np.frombuffer(mz_bytes, dtype=self.mz_precision), np.frombuffer(
-                    int_bytes, dtype=self.int_precision
+                yield (
+                    np.frombuffer(mz_bytes, dtype=self.mz_precision),
+                    np.frombuffer(int_bytes, dtype=self.int_precision),
                 )
 
 
