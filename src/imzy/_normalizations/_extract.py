@@ -1,4 +1,5 @@
 """Get normalization utilities."""
+
 import warnings
 from pathlib import Path
 
@@ -72,25 +73,19 @@ def _get_outlier_mask(norm: np.ndarray, n_orders: int = 2) -> np.ndarray:
 def extract_normalizations_hdf5(input_dir: PathLike, hdf_path: PathLike, silent: bool = False) -> Path:
     """Extract normalizations from hdf5."""
     normalization_names = get_normalizations()
-    normalizations = compute_normalizations(input_dir, silent=silent)
+    normalizations = compute_normalizations(input_dir, clean=True, silent=silent)
 
     store = H5NormalizationStore(hdf_path, mode="a")
     with np.errstate(invalid="ignore", divide="ignore"):
         with store.open() as h5:
             group = store._get_group(h5, store.NORMALIZATION_KEY)
             for i, normalization in enumerate(normalization_names):
-                # get normalization
-                norm = normalizations[:, i]
-                # remove outliers
-                mask = _get_outlier_mask(norm, 2)
-                norm[mask] = np.median(norm[mask])
-                # save the normalizations as 'multiplier' version so it's easier to apply
-                group[normalization][:] = 1 / (norm / np.median(norm))
+                group[normalization][:] = normalizations[:, i]
             store.flush()
     return hdf_path
 
 
-def compute_normalizations(input_dir: Path, silent: bool = False) -> np.ndarray:
+def compute_normalizations(input_dir: Path, clean: bool = True, silent: bool = False) -> np.ndarray:
     """Calculate normalizations for a set of frames."""
     from imzy._readers import get_reader
 
@@ -116,6 +111,16 @@ def compute_normalizations(input_dir: Path, silent: bool = False) -> np.ndarray:
     ):
         norm_array[i] = calculate_normalizations_optimized(y.astype(np.float32))
     norm_array = np.nan_to_num(norm_array, nan=1.0)
+    # clean-up normalizations
+    for i in range(norm_array.shape[1]):
+        # get normalization
+        norm = norm_array[:, i]
+        if clean:
+            # remove outliers
+            mask = _get_outlier_mask(norm, 2)
+            norm[mask] = np.median(norm[mask])
+            # save the normalizations as 'multiplier' version so it's easier to apply
+        norm_array[:, i] = 1 / (norm / np.median(norm))
     return norm_array
 
 
