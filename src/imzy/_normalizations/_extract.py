@@ -112,15 +112,16 @@ def compute_normalizations(input_dir: Path, clean: bool = True, silent: bool = F
         norm_array[i] = calculate_normalizations_optimized(y.astype(np.float32))
     norm_array = np.nan_to_num(norm_array, nan=1.0)
     # clean-up normalizations
-    for i in range(norm_array.shape[1]):
-        # get normalization
-        norm = norm_array[:, i]
-        if clean:
-            # remove outliers
-            mask = _get_outlier_mask(norm, 2)
-            norm[mask] = np.median(norm[mask])
-            # save the normalizations as 'multiplier' version so it's easier to apply
-        norm_array[:, i] = 1 / (norm / np.median(norm))
+    with np.errstate(invalid="ignore", divide="ignore"):
+        for i in range(norm_array.shape[1]):
+            # get normalization
+            norm = norm_array[:, i]
+            if clean:
+                # remove outliers
+                mask = _get_outlier_mask(norm, 2)
+                norm[mask] = np.median(norm[mask])
+                # save the normalizations as 'multiplier' version so it's easier to apply
+            norm_array[:, i] = 1 / (norm / np.median(norm))
     return norm_array
 
 
