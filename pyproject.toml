@@ -49,17 +49,23 @@ dependencies = [
   "numba",
   "tqdm",
   "natsort",
+  "pluggy",
   "koyo",
   "ims-utils",
-  "pluggy",
+  "yoki5",
 ]
 
 # extras
 # https://peps.python.org/pep-0621/#dependencies-optional-dependencies
 [project.optional-dependencies]
+plot = ["matplotlib"]
+zarr = ["zarr", "dask", "rechunker"]
+hdf5 = ["h5py", "hdf5plugin"]
+all = ["imzy[hdf5]", "imzy[zarr]", "imzy[plot]"]
 test = [
     "pytest>=7.0",
     "pytest-cov",
+    "imzy[all]",
 ]
 dev = [
     "black==24.10.0",
@@ -72,10 +78,6 @@ dev = [
     "ruff",
     "imzy[test]"
 ]
-plot = ["matplotlib"]
-zarr = ["zarr", "dask", "rechunker"]
-hdf5 = ["h5py", "hdf5plugin"]
-all = ["imzy[hdf5]", "imzy[zarr]", "imzy[plot]"]
 docs = ["mkdocs", "mkdocs-material", "markdown-changelog"]
 
 
