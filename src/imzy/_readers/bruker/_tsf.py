@@ -110,30 +110,35 @@ class TSFReader(BrukerBaseReader):
         """Read centroid spectrum."""
         # buffer-growing loop
         while True:
-            cnt = int(self.profile_buffer_size)  # necessary cast to run with python 3.5
+            cnt = int(self.line_buffer_size)  # necessary cast to run with python 3.5
             index_buf = np.empty(shape=cnt, dtype=np.float64)
             intensity_buf = np.empty(shape=cnt, dtype=np.float32)
-
+            index = index + 1 # We need to add 1 to the index to match timsTOF 1-index with numpy self.pixels
             required_len = self.dll.tsf_read_line_spectrum_v2(
                 self.handle,
                 index,
                 index_buf.ctypes.data_as(POINTER(c_double)),
                 intensity_buf.ctypes.data_as(POINTER(c_float)),
-                self.profile_buffer_size,
+                self.line_buffer_size,
             )
 
             if required_len < 0:
                 _throw_last_error(self.dll)
 
-            if required_len > self.profile_buffer_size:
+            if required_len > self.line_buffer_size:
                 if required_len > 16777216:
                     # arbitrary limit for now...
                     raise RuntimeError("Maximum expected frame size exceeded.")
                 self.line_buffer_size = required_len  # grow buffer
             else:
                 break
-        return index_buf[0:required_len], intensity_buf[0:required_len]
 
+        mzs = self._call_conversion_func(
+            index, index_buf[0:required_len], self._dll_index_to_mz_func
+        )
+
+        return mzs[0:required_len], intensity_buf[0:required_len]
+    
     def _read_spectrum(self, index: int) -> ty.Tuple[np.ndarray, np.ndarray]:
         return self.mz_x, self.read_profile_spectrum(index)
 

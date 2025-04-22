@@ -2,6 +2,7 @@
 import pytest
 from imzy import TSFReader, get_reader
 from koyo.system import IS_MAC
+import numpy as np
 
 from .utilities import get_tsf_data
 
@@ -85,6 +86,16 @@ def test_to_h5(path, tmp_path):
 
 @pytest.mark.skipif(IS_MAC, reason="Bruker reader is not supported on macOS.")
 @pytest.mark.parametrize("path", get_tsf_data())
+def test_read_centroid_spectrum(path):
+    reader = TSFReader(path)
+    for pixel in reader.pixels:
+        mzs, intensities = reader.read_centroid_spectrum(pixel)
+    assert mzs.dtype == np.float64
+    assert intensities.dtype == np.float32
+    assert pixel == reader.n_pixels - 1
+    
+@pytest.mark.skipif(IS_MAC, reason="Bruker reader is not supported on macOS.")
+@pytest.mark.parametrize("path", get_tsf_data())
 def test_norms(path, tmp_path):
     reader = TSFReader(path)
 
@@ -92,3 +103,4 @@ def test_norms(path, tmp_path):
     h5_path = reader.extract_normalizations_hdf5(h5_temp)
     assert h5_path.exists()
     assert h5_temp != h5_path
+
