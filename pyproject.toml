@@ -50,6 +50,7 @@ dependencies = [
   "tqdm",
   "natsort",
   "koyo",
+  "ims-utils",
   "pluggy",
 ]
 
