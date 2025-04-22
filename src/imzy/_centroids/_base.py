@@ -56,13 +56,15 @@ class BaseCentroids:
     def _reshape_single(self, array, fill_value=np.nan):
         """Reshape single image."""
         if self._reshape_by_coordinates:
-            return reshape_array_from_coordinates(array, self.image_shape, self.xyz_coordinates, fill_value=fill_value)
+            return reshape_array_from_coordinates(
+                array, self.image_shape, self.xyz_coordinates, fill_value=fill_value, offset=1
+            )
         return reshape_array(array, self.image_shape, self.pixel_index, fill_value=fill_value)
 
     def _reshape_multiple(self, array, fill_value=np.nan):
         if self._reshape_by_coordinates:
             return reshape_array_batch_from_coordinates(
-                array, self.image_shape, self.xyz_coordinates, fill_value=fill_value
+                array, self.image_shape, self.xyz_coordinates, fill_value=fill_value, offset=1
             )
         return reshape_array_batch(array, self.image_shape, self.pixel_index, fill_value=fill_value)
 

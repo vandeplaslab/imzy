@@ -38,3 +38,15 @@ def get_rois_from_bruker_d(path: PathLike) -> ty.List[int]:
     cursor.close()
     conn.close()
     return list(range(0, last_roi + 1))
+
+
+def _safe_rmtree(path):
+    from shutil import rmtree
+
+    try:
+        rmtree(path)
+    except (OSError, FileNotFoundError):
+        pass
+
+
+

@@ -179,6 +179,11 @@ class IMZMLReader(BaseReader):
             im[i, self.y_coordinates - 1, self.x_coordinates - 1] = array[:, i]
         return im
 
+    def flatten(self, image: np.ndarray) -> np.ndarray:
+        """Retrieve original vector of intensities from an image."""
+        array = image[self.y_coordinates - 1, self.x_coordinates - 1]
+        return array
+
     def get_summed_spectrum(self, indices: ty.Iterable[int], silent: bool = False) -> ty.Tuple[np.ndarray, np.ndarray]:
         """Sum pixel data to produce summed mass spectrum."""
         indices = np.asarray(indices)
@@ -209,7 +214,7 @@ class IMZMLReader(BaseReader):
         # we must create our own.
         # We have decided to create resampled spectrum with pre-defined ppm limit. This is not ideal but its better than
         # not doing it at all.
-        from koyo.spectrum import get_ppm_axis, set_ppm_axis, trim_axis
+        from ims_utils.spectrum import get_ppm_axis, set_ppm_axis, trim_axis
 
         indices = np.asarray(indices)
         if indices.size == 0:
@@ -269,8 +274,9 @@ class IMZMLReader(BaseReader):
                 mz_bytes = f_ptr.read(mz_l * self._mz_size)
                 f_ptr.seek(int_o)
                 int_bytes = f_ptr.read(int_l * self._int_size)
-                yield np.frombuffer(mz_bytes, dtype=self.mz_precision), np.frombuffer(
-                    int_bytes, dtype=self.int_precision
+                yield (
+                    np.frombuffer(mz_bytes, dtype=self.mz_precision),
+                    np.frombuffer(int_bytes, dtype=self.int_precision),
                 )
 
 

@@ -1,4 +1,5 @@
 """Base reader."""
+
 import os
 import typing as ty
 from contextlib import suppress
@@ -6,7 +7,7 @@ from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
-from koyo.spectrum import find_between_batch, find_between_ppm, find_between_tol, get_mzs_for_tol
+from ims_utils.spectrum import find_between_batch, find_between_ppm, find_between_tol, get_mzs_for_tol
 from koyo.typing import PathLike
 from koyo.utilities import get_min_max
 from loguru import logger
@@ -126,10 +127,24 @@ class BaseReader:
             im[i, self.y_coordinates, self.x_coordinates] = array[:, i]
         return im
 
+    def flatten(self, array: np.ndarray) -> np.ndarray:
+        """Flatten 2D image."""
+        return array[self.y_coordinates, self.x_coordinates]
+
     @property
     def image_shape(self) -> ty.Tuple[int, int]:
         """Return shape of the image."""
         return self.y_size, self.x_size
+
+    def index_to_xy_coordinates(self, index: int) -> ty.Tuple[int, int]:
+        """Convert index to x, y coordinates."""
+        return self.x_coordinates[index], self.y_coordinates[index]
+
+    def xy_coordinates_to_index(self, x: int, y: int) -> int:
+        """Convert x, y coordinates to index."""
+        indices = np.where((self.x_coordinates == x) & (self.y_coordinates == y))[0]
+        if indices.size > 0:
+            return indices[0]
 
     @property
     def xyz_coordinates(self) -> np.ndarray:
@@ -298,7 +313,12 @@ class BaseReader:
         silent: bool = False,
     ) -> Path:
         """Export many ion images for specified m/z values (+ tolerance) to Zarr array."""
-        from imzy._extract import check_zarr, create_centroids_zarr, extract_centroids_zarr, rechunk_zarr_array
+        from imzy._centroids._extract import (
+            check_zarr,
+            create_centroids_zarr,
+            extract_centroids_zarr,
+            rechunk_zarr_array,
+        )
 
         if not as_flat:
             raise ValueError("Only flat images are supported at the moment.")
@@ -361,7 +381,8 @@ class BaseReader:
         silent: bool = False,
     ) -> Path:
         """Export many ion images for specified m/z values (+ tolerance) to a HDF5 store."""
-        from imzy._extract import check_hdf5, create_centroids_hdf5, extract_centroids_hdf5, get_chunk_info
+        from imzy._centroids._extract import create_centroids_hdf5, extract_centroids_hdf5, get_chunk_info
+        from imzy._hdf5_mixin import check_hdf5
 
         if not as_flat:
             raise ValueError("Only flat images are supported at the moment.")
@@ -396,6 +417,12 @@ class BaseReader:
             ppm=ppm,
             tol=tol,
             chunk_info=chunk_info,
+            spatial_info={
+                "x_coordinates": self.x_coordinates,
+                "y_coordinates": self.y_coordinates,
+                "image_shape": np.asarray(self.image_shape),
+                "pixel_size": self.pixel_size,
+            },
         )
         extract_centroids_hdf5(
             input_dir=self.path,
@@ -405,6 +432,22 @@ class BaseReader:
             indices=self.pixels,
             silent=silent,
         )
+        return hdf_path
+
+    extract_centroids_hdf5 = to_hdf5
+
+    def extract_normalizations_hdf5(self, hdf_path: PathLike, silent: bool = False):
+        """Extract normalizations."""
+        from imzy._hdf5_mixin import check_hdf5
+        from imzy._normalizations._extract import create_normalizations_hdf5, extract_normalizations_hdf5
+
+        check_hdf5()
+        hdf_path = Path(hdf_path)
+        if not hdf_path.suffix == ".h5":
+            hdf_path = hdf_path.with_suffix(".h5")
+        if not hdf_path.exists():
+            hdf_path = create_normalizations_hdf5(self.path, hdf_path)
+            hdf_path = extract_normalizations_hdf5(input_dir=self.path, hdf_path=hdf_path, silent=silent)
         return hdf_path
 
     def spectra_iter(

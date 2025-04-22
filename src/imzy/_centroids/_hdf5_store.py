@@ -4,6 +4,8 @@ from contextlib import contextmanager
 
 import numpy as np
 
+from imzy._hdf5_mixin import HDF5Mixin
+
 try:
     import h5py
 except ImportError:
@@ -15,12 +17,23 @@ from koyo.utilities import find_nearest_index
 from imzy._centroids._base import BaseCentroids
 
 
-class H5CentroidsStore(BaseCentroids):
+def format_ppm(mz: float, ppm: float):
+    """Create formatted ppm'¬s."""
+    return f"{mz:.3f} Da ± {ppm:.1f}ppm"
+
+
+def format_tol(mz: float, mda: float):
+    """Create formatted label."""
+    return f"{mz:.3f} Da ± {mda:.3f}Da"
+
+
+class H5CentroidsStore(HDF5Mixin, BaseCentroids):
     """HDF5-centroids."""
 
     # Private attributes
     PEAKS_KEY = "Array"
     PEAKS_ARRAY_KEY = "Array/array"
+    SPATIAL_KEY = "Misc/Spatial"
 
     # Cache attributes
     _chunk_info = None
@@ -28,6 +41,10 @@ class H5CentroidsStore(BaseCentroids):
     _proxy = None
     _is_chunked = None
     _low_mem: bool = True
+    _ion_labels = None
+    _tol, _ppm = None, None
+    _peaks = None
+    unique_id: str = ""
 
     def __init__(
         self,
@@ -38,13 +55,11 @@ class H5CentroidsStore(BaseCentroids):
         mode: str = "a",
     ):
         super().__init__(xyz_coordinates, pixel_index, image_shape)
-        assert h5py is not None, "h5py is not installed."
-
-        self.path = path
-        self.mode = mode
+        self._init_hdf5(path, mode)
 
     @property
-    def is_low_mem(self):
+    def is_low_mem(self) -> bool:
+        """Get low memory flag."""
         return self._low_mem
 
     @is_low_mem.setter
@@ -55,6 +70,7 @@ class H5CentroidsStore(BaseCentroids):
 
     @property
     def is_chunked(self) -> bool:
+        """Get chunked flag."""
         if self._is_chunked is None:
             with self.open() as h5:
                 self._is_chunked = h5[self.PEAKS_KEY].attrs.get("is_chunked")
@@ -103,6 +119,71 @@ class H5CentroidsStore(BaseCentroids):
                 group = h5[self.PEAKS_KEY]
                 yield group["array"]
 
+    @property
+    def peaks(self) -> np.ndarray:
+        """Load peaks data.
+
+        This function uses custom data loading to speed things up. Because we chunk the ion images along one dimension,
+        it becomes very slow to read the entire data in one go. It can be optimized a little by read the data one image
+        at a time and then building 2d array.
+        """
+        if self._peaks is None:
+            if self.is_chunked:
+                if self._proxy is None:
+                    self._proxy = LazyPeaksProxy(self)
+                self._peaks = self._proxy.peaks()
+            else:
+                array = np.zeros(self.shape, dtype=self.dtype)
+                with self.open("r") as h5:
+                    for sl in h5[self.PEAKS_ARRAY_KEY].iter_chunks():
+                        array[sl] = h5[self.PEAKS_ARRAY_KEY][sl]
+                self._peaks = array
+        return self._peaks
+
+    @property
+    def tol(self) -> int:
+        """Get Da tolerance the data was extracted at."""
+        if self._tol is None:
+            self._tol = self.get_attr(self.PEAKS_KEY, "tol")
+        return self._tol
+
+    @property
+    def ppm(self) -> float:
+        """Get ppm/bins the data was extracted at."""
+        if self._ppm is None:
+            self._ppm = self.get_attr(self.PEAKS_KEY, "ppm")
+        return self._ppm
+
+    def _setup_labels(self):
+        """Setup labels."""
+        if self._ion_labels is None:
+            mzs = self.xs
+            ppm = self.ppm
+            tol = self.tol
+            self._ion_labels = {
+                "ppm": [format_ppm(mz, ppm) for mz in mzs] if ppm else [],
+                "tol": [format_tol(mz, tol) for i, mz in enumerate(mzs)] if tol is not None else [],
+            }
+            if not self._ion_labels["ppm"]:
+                self._ion_labels["ppm"] = self._ion_labels["tol"]
+
+    def index_to_name(self, index: int, effective: bool = True, mz: bool = False):
+        """Convert index to ion name."""
+        if self._ion_labels is None:
+            self._setup_labels()
+        return self._ion_labels["ppm"][index]
+
+    @property
+    def labels(self) -> ty.Tuple[np.ndarray, ty.Optional[np.ndarray], ty.Optional[np.ndarray]]:
+        """Return all available labels."""
+        return self.xs, None, None
+
+    def lazy_iter(self):
+        """Lazily yield ion images."""
+        with self.lazy_peaks() as peaks:
+            for i, mz in enumerate(self.xs):
+                yield mz, peaks[:, i]
+
     def get_ion(self, value: ty.Union[int, float]) -> np.ndarray:
         """Retrieve single ion."""
         if isinstance(value, float):
@@ -127,79 +208,6 @@ class H5CentroidsStore(BaseCentroids):
             with self.open() as h5:
                 h5[self.PEAKS_ARRAY_KEY][framelist] = array
                 h5.flush()
-
-    @contextmanager
-    def open(self, mode: ty.Optional[str] = None):
-        """Safely open storage."""
-        if mode is None:
-            mode = self.mode
-        try:
-            f_ptr = h5py.File(self.path, mode=mode, rdcc_nbytes=1024 * 1024 * 4)
-        except FileExistsError as err:
-            raise err
-        try:
-            yield f_ptr
-        finally:
-            f_ptr.close()
-
-    def flush(self):
-        """Flush data to disk."""
-        with self.open() as h5:
-            h5.flush()
-
-    @staticmethod
-    def _get_group(hdf, group_name: str, flush: bool = True):
-        try:
-            group = hdf[group_name]
-        except KeyError:
-            group = hdf.create_group(group_name)
-            if flush:
-                hdf.flush()
-        return group
-
-    @staticmethod
-    def _add_data_to_group(
-        group_obj,
-        dataset_name,
-        data,
-        dtype,
-        chunks=None,
-        maxshape=None,
-        compression=None,
-        compression_opts=None,
-        shape=None,
-    ):
-        """Add data to group."""
-        replaced_dataset = False
-
-        if dtype is None:
-            if hasattr(data, "dtype"):
-                dtype = data.dtype
-        if shape is None:
-            if hasattr(data, "shape"):
-                shape = data.shape
-
-        if dataset_name in list(group_obj.keys()):
-            if group_obj[dataset_name].dtype == dtype:
-                try:
-                    group_obj[dataset_name][:] = data
-                    replaced_dataset = True
-                except TypeError:
-                    del group_obj[dataset_name]
-            else:
-                del group_obj[dataset_name]
-
-        if not replaced_dataset:
-            group_obj.create_dataset(
-                dataset_name,
-                data=data,
-                dtype=dtype,
-                compression=compression,
-                chunks=chunks,
-                maxshape=maxshape,
-                compression_opts=compression_opts,
-                shape=shape,
-            )
 
 
 class LazyPeaksProxy:
@@ -230,7 +238,7 @@ class LazyPeaksProxy:
     def shape(self) -> ty.Tuple[int, int]:
         """Return shape."""
         chunk_info = self.obj.chunk_info
-        n_px = chunk_info[max(chunk_info.keys())].max()
+        n_px = sum(len(indices) for indices in chunk_info.values())
         return n_px, self.obj.n_peaks
 
     @property
