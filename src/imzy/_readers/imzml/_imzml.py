@@ -322,11 +322,10 @@ def read_imzml_metadata(root, sl: str = "{http://psi.hupo.org/ms/mzml}"):
         for idx, _ in enumerate(param):
             acc, attr = accession[idx]
             elem = elem_list.find(f'.//{sl}cvParam[@accession="{acc}"]')
-            if elem is None:
-                break
-            name, value = param[idx]
             try:
-                metadata_dict[name] = value(elem.attrib[attr])
+                if elem is not None:
+                    name, value = param[idx]
+                    metadata_dict[name] = value(elem.attrib[attr])
             except ValueError:
                 warn(Warning(f"Wrong data type in XML file. Skipped attribute '{name}'"), stacklevel=3)
 
