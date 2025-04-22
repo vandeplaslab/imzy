@@ -7,7 +7,7 @@ from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
-from koyo.spectrum import find_between_batch, find_between_ppm, find_between_tol, get_mzs_for_tol
+from ims_utils.spectrum import find_between_batch, find_between_ppm, find_between_tol, get_mzs_for_tol
 from koyo.typing import PathLike
 from koyo.utilities import get_min_max
 from loguru import logger

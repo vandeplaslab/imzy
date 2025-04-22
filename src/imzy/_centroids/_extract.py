@@ -2,7 +2,7 @@ import typing as ty
 from pathlib import Path
 
 import numpy as np
-from koyo.spectrum import find_between_batch
+from ims_utils.spectrum import find_between_batch
 from koyo.typing import PathLike
 from koyo.utilities import chunks
 from tqdm import tqdm

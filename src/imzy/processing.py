@@ -3,7 +3,7 @@ import typing as ty
 
 import numba
 import numpy as np
-from koyo.spectrum import find_between_batch
+from ims_utils.spectrum import find_between_batch
 from scipy.interpolate import interp1d
 
 
