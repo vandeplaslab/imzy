@@ -214,7 +214,7 @@ class IMZMLReader(BaseReader):
         # we must create our own.
         # We have decided to create resampled spectrum with pre-defined ppm limit. This is not ideal but its better than
         # not doing it at all.
-        from koyo.spectrum import get_ppm_axis, set_ppm_axis, trim_axis
+        from ims_utils.spectrum import get_ppm_axis, set_ppm_axis, trim_axis
 
         indices = np.asarray(indices)
         if indices.size == 0:
