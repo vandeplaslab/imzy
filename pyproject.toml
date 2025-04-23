@@ -65,7 +65,6 @@ test = [
     "imzy[all]",
 ]
 dev = [
-    "black==24.10.0",
     "ipython",
     "mypy",
     "pdbpp",
