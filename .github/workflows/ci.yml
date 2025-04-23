@@ -23,14 +23,14 @@ jobs:
       - run: pipx run check-manifest
 
   test:
-    uses: pyapp-kit/workflows/.github/workflows/test-pyrepo.yml@v2
+    uses: lukasz-migas/workflows/.github/workflows/test-pyrepo.yml
     secrets: inherit
     with:
       os: ${{ matrix.os }}
       python-version: ${{ matrix.python-version }}
       pip-install-pre-release: ${{ github.event_name == 'schedule' }}
       report-failures: ${{ github.event_name == 'schedule' }}
-      extras: 'pptx,test'
+      extras: 'test'
       # changing this to "artifact" prevents uploading to codecov here,
       # instead it uploads an artifact with the coverage data
       coverage-upload: artifact
@@ -48,10 +48,7 @@ jobs:
             os: macos-latest
           - python-version: "3.12"
             os: macos-latest
-    steps:
-      - name: Setup tmate session
-        if: failure()
-        uses: mxschmitt/action-tmate@v3
+
 
   # now add another job to combine and upload the coverage
   upload_coverage:
