@@ -30,6 +30,7 @@ jobs:
       python-version: ${{ matrix.python-version }}
       pip-install-pre-release: ${{ github.event_name == 'schedule' }}
       report-failures: ${{ github.event_name == 'schedule' }}
+      debug-failures: true
       extras: 'test'
       # changing this to "artifact" prevents uploading to codecov here,
       # instead it uploads an artifact with the coverage data
