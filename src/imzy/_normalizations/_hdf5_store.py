@@ -1,18 +1,20 @@
 """HDF5 store for normalizations."""
+
+import typing as ty
+
 import numpy as np
 from koyo.typing import PathLike
 from loguru import logger
+from yoki5.base import Store
 
-from imzy._hdf5_mixin import HDF5Mixin
 
-
-class H5NormalizationStore(HDF5Mixin):
+class H5NormalizationStore(Store):
     """HDF5 store for normalizations."""
 
     NORMALIZATION_KEY: str = "Normalization"
 
     def __init__(self, path: PathLike, mode: str = "a"):
-        self._init_hdf5(path, mode)
+        super().__init__(path=path, mode=mode)
 
     def __getitem__(self, item: str) -> np.ndarray:
         """Retrieve item."""
@@ -49,7 +51,7 @@ class H5NormalizationStore(HDF5Mixin):
         else:
             return self._batch_normalize(array, name, **kwargs)
 
-    def _single_normalize(self, array: np.ndarray, norm: str, **kwargs) -> np.ndarray:
+    def _single_normalize(self, array: np.ndarray, norm: str, **kwargs: ty.Any) -> np.ndarray:
         """Apply normalization to an array.
 
         Parameters
@@ -77,7 +79,7 @@ class H5NormalizationStore(HDF5Mixin):
         self,
         array: np.ndarray,
         norm: str,
-        **kwargs,
+        **kwargs: ty.Any,
     ):
         if array.ndim < 2:
             raise ValueError("Expected two-dimensional array of 'N pixels * M peaks'.")

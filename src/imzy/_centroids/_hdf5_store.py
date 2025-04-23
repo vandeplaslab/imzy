@@ -1,10 +1,10 @@
 """Wrapper class for HDF5-based centroids."""
+
 import typing as ty
 from contextlib import contextmanager
 
 import numpy as np
-
-from imzy._hdf5_mixin import HDF5Mixin
+from yoki5.base import Store
 
 try:
     import h5py
@@ -27,7 +27,7 @@ def format_tol(mz: float, mda: float):
     return f"{mz:.3f} Da ± {mda:.3f}Da"
 
 
-class H5CentroidsStore(HDF5Mixin, BaseCentroids):
+class H5CentroidsStore(Store, BaseCentroids):
     """HDF5-centroids."""
 
     # Private attributes
@@ -54,8 +54,8 @@ class H5CentroidsStore(HDF5Mixin, BaseCentroids):
         image_shape: ty.Optional[ty.Tuple[int, int]] = None,
         mode: str = "a",
     ):
-        super().__init__(xyz_coordinates, pixel_index, image_shape)
-        self._init_hdf5(path, mode)
+        Store.__init__(self, path=path, mode=mode)
+        BaseCentroids.__init__(self, xyz_coordinates, pixel_index, image_shape)
 
     @property
     def is_low_mem(self) -> bool:

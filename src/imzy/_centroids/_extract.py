@@ -6,9 +6,9 @@ from ims_utils.spectrum import find_between_batch
 from koyo.typing import PathLike
 from koyo.utilities import chunks
 from tqdm import tqdm
+from yoki5.utilities import parse_to_attribute
 
 from imzy import get_reader
-from imzy._hdf5_mixin import parse_to_attribute
 from imzy._typing import SpatialInfo
 from imzy.processing import accumulate_peaks_centroid, accumulate_peaks_profile, optimize_chunks_along_axis
 from imzy.utilities import _safe_rmtree
@@ -201,7 +201,7 @@ def create_centroids_hdf5(
 
     store = H5CentroidsStore(hdf_path, mode="a")
     with store.open() as h5:
-        group = store._get_group(h5, store.PEAKS_KEY)
+        group = store._add_group(h5, store.PEAKS_KEY)
         # add attributes
         group.attrs["n_peaks"] = parse_to_attribute(n_peaks)
         group.attrs["tol"] = parse_to_attribute(tol)
@@ -209,15 +209,15 @@ def create_centroids_hdf5(
         group.attrs["is_chunked"] = chunk_info is not None
         # add data
         if mzs is not None:
-            store._add_data_to_group(group, "mzs", mzs, maxshape=(None,), dtype=mzs.dtype)
+            store._add_array_to_group(group, "mzs", mzs, maxshape=(None,), dtype=mzs.dtype)
         if mzs_min is not None:
-            store._add_data_to_group(group, "mzs_min", mzs_min, maxshape=(None,), dtype=mzs_min.dtype)
+            store._add_array_to_group(group, "mzs_min", mzs_min, maxshape=(None,), dtype=mzs_min.dtype)
         if mzs_max is not None:
-            store._add_data_to_group(group, "mzs_max", mzs_max, maxshape=(None,), dtype=mzs_max.dtype)
+            store._add_array_to_group(group, "mzs_max", mzs_max, maxshape=(None,), dtype=mzs_max.dtype)
         if ys is not None:
-            store._add_data_to_group(group, "ys", ys, maxshape=(None,), dtype=ys.dtype)
+            store._add_array_to_group(group, "ys", ys, maxshape=(None,), dtype=ys.dtype)
         if chunk_info is None:
-            store._add_data_to_group(
+            store._add_array_to_group(
                 group,
                 "array",
                 None,
@@ -230,7 +230,7 @@ def create_centroids_hdf5(
         else:
             for chunk_id, framelist in chunk_info.items():
                 array_shape = (len(framelist), array_shape[1])
-                store._add_data_to_group(
+                store._add_array_to_group(
                     group,
                     str(chunk_id),
                     None,
@@ -240,11 +240,11 @@ def create_centroids_hdf5(
                     dtype=np.float32,
                     **compression,
                 )
-        group = store._get_group(h5, store.SPATIAL_KEY)
+        group = store._add_group(h5, store.SPATIAL_KEY)
         if spatial_info is not None:
             group.attrs["pixel_size"] = spatial_info.pop("pixel_size", 1.0)
             for key, value in spatial_info.items():
-                store._add_data_to_group(group, key, value, dtype=value.dtype)
+                store._add_array_to_group(group, key, value, dtype=value.dtype)
     return Path(hdf_path)
 
 
@@ -282,7 +282,7 @@ def extract_centroids_hdf5(
             tqdm(
                 indices,
                 disable=silent,
-                desc=f"Extracting {n_peaks} peaks (chunk={chunk_id+1}/{n_chunks})",
+                desc=f"Extracting {n_peaks} peaks (chunk={chunk_id + 1}/{n_chunks})",
                 miniters=250,
                 mininterval=2,
             )

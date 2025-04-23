@@ -40,6 +40,15 @@ def get_normalizations() -> list[str]:
     ]
 
 
+def _get_outlier_mask(norm: np.ndarray, n_orders: int = 2) -> np.ndarray:
+    """Retrieve normalization and determine outliers."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        norm = np.log10(norm + 1)
+        mask = norm < (norm.max() - n_orders)
+    return mask
+
+
 def create_normalizations_hdf5(input_dir: PathLike, hdf_path: PathLike) -> Path:
     """Create group with datasets inside."""
     from imzy._readers import get_reader
@@ -54,20 +63,11 @@ def create_normalizations_hdf5(input_dir: PathLike, hdf_path: PathLike) -> Path:
 
     store = H5NormalizationStore(hdf_path, mode="a")
     with store.open() as h5:
-        group = store._get_group(h5, store.NORMALIZATION_KEY)
+        group = store._add_group(h5, store.NORMALIZATION_KEY)
         for normalization in get_normalizations():
-            group.create_dataset(normalization, shape=(n_pixels,), dtype=np.float32, **compression)
+            store._add_array_to_group(group, normalization, None, shape=(n_pixels,), dtype=np.float32, **compression)
     store.flush()
     return hdf_path
-
-
-def _get_outlier_mask(norm: np.ndarray, n_orders: int = 2) -> np.ndarray:
-    """Retrieve normalization and determine outliers."""
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", RuntimeWarning)
-        norm = np.log10(norm + 1)
-        mask = norm < (norm.max() - n_orders)
-    return mask
 
 
 def extract_normalizations_hdf5(input_dir: PathLike, hdf_path: PathLike, silent: bool = False) -> Path:
@@ -112,7 +112,8 @@ def compute_normalizations(input_dir: Path, clean: bool = True, silent: bool = F
         norm_array[i] = calculate_normalizations_optimized(y.astype(np.float32))
     norm_array = np.nan_to_num(norm_array, nan=1.0)
     # clean-up normalizations
-    with np.errstate(invalid="ignore", divide="ignore"):
+    with np.errstate(invalid="ignore", divide="ignore"), warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
         for i in range(norm_array.shape[1]):
             # get normalization
             norm = norm_array[:, i]
