@@ -48,6 +48,10 @@ jobs:
             os: macos-latest
           - python-version: "3.12"
             os: macos-latest
+      steps:
+        - name: Setup tmate session
+          if: failure()
+          uses: mxschmitt/action-tmate@v3
 
   # now add an additional job to combine and upload the coverage
   upload_coverage:
