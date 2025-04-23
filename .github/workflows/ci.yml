@@ -23,7 +23,7 @@ jobs:
       - run: pipx run check-manifest
 
   test:
-    uses: lukasz-migas/workflows/.github/workflows/test-pyrepo.yml
+    uses: lukasz-migas/workflows/.github/workflows/test-pyrepo.yml@v2
     secrets: inherit
     with:
       os: ${{ matrix.os }}
