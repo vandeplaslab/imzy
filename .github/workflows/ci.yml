@@ -48,18 +48,18 @@ jobs:
             os: macos-latest
           - python-version: "3.12"
             os: macos-latest
-      steps:
-        - name: Setup tmate session
-          if: failure()
-          uses: mxschmitt/action-tmate@v3
+    steps:
+      - name: Setup tmate session
+        if: failure()
+        uses: mxschmitt/action-tmate@v3
 
-  # now add an additional job to combine and upload the coverage
+  # now add another job to combine and upload the coverage
   upload_coverage:
     if: always()
     needs: [test]
     uses: pyapp-kit/workflows/.github/workflows/upload-coverage.yml@v2
-#    secrets:
-#      codecov_token: ${{ secrets.CODECOV_TOKEN }}
+    secrets:
+      codecov_token: ${{ secrets.CODECOV_TOKEN }}
 
   deploy_test:
     name: Deploy to PyPI (test)
