@@ -18,7 +18,7 @@ def get_version() -> str:
     """Get version."""
     try:
         return importlib_metadata.version(__name__)
-    except importlib_metadata.PackageNotFoundError:  # pragma: no cover
+    except (importlib_metadata.PackageNotFoundError, KeyError):  # pragma: no cover
         return "unknown"
 
 
