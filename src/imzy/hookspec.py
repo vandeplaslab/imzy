@@ -1,4 +1,5 @@
 """Hooks for imzy."""
+
 import typing as ty
 
 from koyo.typing import PathLike

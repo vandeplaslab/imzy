@@ -1,6 +1,8 @@
 """Plugin manager tests."""
-import imzy
+
 import pytest
+
+import imzy
 
 from .utilities import get_imzml_data
 

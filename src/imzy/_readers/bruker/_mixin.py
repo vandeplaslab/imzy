@@ -1,4 +1,5 @@
 """Base class for file readers."""
+
 import sqlite3
 import typing as ty
 from contextlib import contextmanager
@@ -20,7 +21,7 @@ class BrukerBaseReader(BaseReader):
     handle = None
     sql_filename: str
     _mz_x: ty.Optional[np.ndarray] = None
-    _rois: ty.Optional[ty.List[int]] = None
+    _rois: ty.Optional[list[int]] = None
     _pixel_size: ty.Optional[float] = None
 
     # DLL functions
@@ -49,7 +50,7 @@ class BrukerBaseReader(BaseReader):
         return self._mz_max
 
     @property
-    def rois(self) -> ty.List[int]:
+    def rois(self) -> list[int]:
         """Return list of ROIs."""
         if self._rois is None:
             self._rois = np.unique(self.region_number).tolist()
@@ -86,7 +87,7 @@ class BrukerBaseReader(BaseReader):
         except RuntimeError:
             return False
 
-    def get_summed_spectrum(self, indices: ty.Iterable[int], silent: bool = False) -> ty.Tuple[np.ndarray, np.ndarray]:
+    def get_summed_spectrum(self, indices: ty.Iterable[int], silent: bool = False) -> tuple[np.ndarray, np.ndarray]:
         """Sum pixel data to produce summed mass spectrum."""
         indices = np.asarray(indices)
         if np.any(indices >= self.n_pixels):
@@ -96,10 +97,10 @@ class BrukerBaseReader(BaseReader):
             mz_y += self._read_spectrum(index)[1]
         return self.mz_x, mz_y
 
-    def _read_spectrum(self, index: int) -> ty.Tuple[np.ndarray, np.ndarray]:
+    def _read_spectrum(self, index: int) -> tuple[np.ndarray, np.ndarray]:
         raise NotImplementedError("Must implement method")
 
-    def _read_spectra(self, indices: ty.Optional[np.ndarray] = None) -> ty.Iterator[ty.Tuple[np.ndarray, np.ndarray]]:
+    def _read_spectra(self, indices: ty.Optional[np.ndarray] = None) -> ty.Iterator[tuple[np.ndarray, np.ndarray]]:
         if indices is None:
             indices = self.pixels
         for index in indices:
@@ -132,7 +133,7 @@ class BrukerBaseReader(BaseReader):
 
     def _call_conversion_func_base(
         self, frame_id: int, input_data: np.ndarray, func: ty.Callable
-    ) -> ty.Tuple[int, np.ndarray]:
+    ) -> tuple[int, np.ndarray]:
         if type(input_data) is np.ndarray and input_data.dtype == np.float64:
             # already "native" format understood by DLL -> avoid extra copy
             in_array = input_data
@@ -183,7 +184,7 @@ class BrukerBaseReader(BaseReader):
             n_frames = int(q.fetchone()[0])
         return n_frames
 
-    def get_acquisition_mass_range(self) -> ty.Tuple[float, float]:
+    def get_acquisition_mass_range(self) -> tuple[float, float]:
         """Retrieve acquisition mass range from the file."""
         with self.sql_reader() as conn:
             cursor = conn.execute("SELECT Key, Value FROM GlobalMetadata")

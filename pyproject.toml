@@ -89,6 +89,7 @@ target-version = "py39"
 src = ["src", "tests"]
 
 # https://beta.ruff.rs/docs/rules/
+[tool.ruff.lint]
 extend-select = [
     "E",    # style errors
     "W",    # style warnings
@@ -122,7 +123,7 @@ extend-ignore = [
   "B019", # Allow usage or lru_cache
 ]
 
-[tool.ruff.per-file-ignores]
+[tool.ruff.lint.per-file-ignores]
 "tests/*.py" = ["D", "S"]
 
 # https://docs.pytest.org/en/6.2.x/customize.html

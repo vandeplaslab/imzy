@@ -1,4 +1,5 @@
 """Python wrapper for timsdata.dll for reading tsf."""
+
 import typing as ty
 from ctypes import (
     CDLL,
@@ -58,7 +59,7 @@ DLL.tsf_read_line_spectrum_with_width_v2.restype = c_int32
 DLL.tsf_read_profile_spectrum_v2.argtypes = [c_uint64, c_int64, POINTER(c_uint32), c_int32]
 DLL.tsf_read_profile_spectrum_v2.restype = c_int32
 
-convfunc_argtypes: ty.List = [c_uint64, c_int64, POINTER(c_double), POINTER(c_double), c_uint32]
+convfunc_argtypes: list = [c_uint64, c_int64, POINTER(c_double), POINTER(c_double), c_uint32]
 
 DLL.tsf_index_to_mz.argtypes = convfunc_argtypes
 DLL.tsf_index_to_mz.restype = c_uint32
@@ -106,14 +107,14 @@ class TSFReader(BrukerBaseReader):
         return out
 
     # Output: tuple of lists (indices, intensities)
-    def read_centroid_spectrum(self, index: int) -> ty.Tuple[np.ndarray, np.ndarray]:
+    def read_centroid_spectrum(self, index: int) -> tuple[np.ndarray, np.ndarray]:
         """Read centroid spectrum."""
         # buffer-growing loop
         while True:
             cnt = int(self.line_buffer_size)  # necessary cast to run with python 3.5
             index_buf = np.empty(shape=cnt, dtype=np.float64)
             intensity_buf = np.empty(shape=cnt, dtype=np.float32)
-            index = index + 1 # We need to add 1 to the index to match timsTOF 1-index with numpy self.pixels
+            index = index + 1  # We need to add 1 to the index to match timsTOF 1-index with numpy self.pixels
             required_len = self.dll.tsf_read_line_spectrum_v2(
                 self.handle,
                 index,
@@ -133,13 +134,11 @@ class TSFReader(BrukerBaseReader):
             else:
                 break
 
-        mzs = self._call_conversion_func(
-            index, index_buf[0:required_len], self._dll_index_to_mz_func
-        )
+        mzs = self._call_conversion_func(index, index_buf[0:required_len], self._dll_index_to_mz_func)
 
         return mzs[0:required_len], intensity_buf[0:required_len]
-    
-    def _read_spectrum(self, index: int) -> ty.Tuple[np.ndarray, np.ndarray]:
+
+    def _read_spectrum(self, index: int) -> tuple[np.ndarray, np.ndarray]:
         return self.mz_x, self.read_profile_spectrum(index)
 
     # Output intensities

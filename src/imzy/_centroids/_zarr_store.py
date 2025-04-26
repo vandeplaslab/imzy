@@ -1,4 +1,5 @@
 """Zarr peaks store."""
+
 import typing as ty
 from pathlib import Path
 
@@ -24,7 +25,7 @@ class ZarrCentroidsStore(BaseCentroids):
         path: PathLike,
         xyz_coordinates: ty.Optional[np.ndarray] = None,
         pixel_index: ty.Optional[np.ndarray] = None,
-        image_shape: ty.Optional[ty.Tuple[int, int]] = None,
+        image_shape: ty.Optional[tuple[int, int]] = None,
     ):
         super().__init__(xyz_coordinates, pixel_index, image_shape)
         assert dsa is not None and zarr is not None, "dask and zarr are not installed."

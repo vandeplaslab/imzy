@@ -119,7 +119,7 @@ def rechunk_zarr_array(
     input_dir: PathLike,
     zarr_path: PathLike,
     target_path: PathLike,
-    chunk_size: ty.Optional[ty.Tuple[int, int]] = None,
+    chunk_size: ty.Optional[tuple[int, int]] = None,
     silent: bool = False,
 ):
     """Re-chunk zarr array to more optional format.
@@ -160,7 +160,7 @@ def rechunk_zarr_array(
     _safe_rmtree(zarr_path)  # remove the temporary array
 
 
-def get_chunk_info(n_pixels: int, n_peaks: int, max_mem: float = 512) -> ty.Dict[int, np.ndarray]:
+def get_chunk_info(n_pixels: int, n_peaks: int, max_mem: float = 512) -> dict[int, np.ndarray]:
     """Get chunk size information for particular dataset."""
     import math
 
@@ -181,7 +181,7 @@ def create_centroids_hdf5(
     tol: ty.Optional[float] = None,
     ppm: ty.Optional[float] = None,
     ys: ty.Optional[np.ndarray] = None,
-    chunk_info: ty.Optional[ty.Dict[int, np.ndarray]] = None,
+    chunk_info: ty.Optional[dict[int, np.ndarray]] = None,
     spatial_info: ty.Optional[SpatialInfo] = None,
 ) -> Path:
     """Create group with datasets inside."""

@@ -1,4 +1,5 @@
 """Base class for all Centroids stores."""
+
 import typing as ty
 
 import numpy as np
@@ -21,7 +22,7 @@ class BaseCentroids:
         self,
         xyz_coordinates: ty.Optional[np.ndarray] = None,
         pixel_index: ty.Optional[np.ndarray] = None,
-        image_shape: ty.Optional[ty.Tuple[int, int]] = None,
+        image_shape: ty.Optional[tuple[int, int]] = None,
     ):
         self.xyz_coordinates = np.asarray(xyz_coordinates) if xyz_coordinates is not None else None
         self.pixel_index = pixel_index
@@ -80,7 +81,7 @@ class BaseCentroids:
     def n_peaks(self) -> int:
         return len(self.xs)
 
-    def get_ion_indices(self, xs: np.ndarray) -> ty.Tuple[np.ndarray, np.ndarray]:
+    def get_ion_indices(self, xs: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """Find ions."""
         # we can calculate this once and then cache it for the future
         indices = find_nearest_index_array(self.xs, xs)

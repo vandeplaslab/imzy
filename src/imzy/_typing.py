@@ -1,4 +1,5 @@
 """Typing for the package."""
+
 import typing as ty
 
 import numpy as np
@@ -9,5 +10,5 @@ class SpatialInfo(ty.TypedDict):
 
     x_coordinates: np.ndarray
     y_coordinates: np.ndarray
-    image_shape: ty.Tuple[int, int]
+    image_shape: tuple[int, int]
     pixel_size: float

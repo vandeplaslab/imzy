@@ -1,4 +1,5 @@
 """In-memory store."""
+
 import typing as ty
 
 import numpy as np
@@ -17,7 +18,7 @@ class InMemoryStore(BaseCentroids):
         reader: "BaseReader",
         xyz_coordinates: ty.Optional[np.ndarray] = None,
         pixel_index: ty.Optional[np.ndarray] = None,
-        image_shape: ty.Optional[ty.Tuple[int, int]] = None,
+        image_shape: ty.Optional[tuple[int, int]] = None,
     ):
         super().__init__(xyz_coordinates, pixel_index, image_shape)
         self.reader = reader

@@ -1,4 +1,5 @@
 """Plugin manager."""
+
 import typing as ty
 
 from koyo.system import IS_MAC

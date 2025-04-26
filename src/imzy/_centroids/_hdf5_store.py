@@ -51,7 +51,7 @@ class H5CentroidsStore(Store, BaseCentroids):
         path: PathLike,
         xyz_coordinates: ty.Optional[np.ndarray] = None,
         pixel_index: ty.Optional[np.ndarray] = None,
-        image_shape: ty.Optional[ty.Tuple[int, int]] = None,
+        image_shape: ty.Optional[tuple[int, int]] = None,
         mode: str = "a",
     ):
         Store.__init__(self, path=path, mode=mode)
@@ -85,7 +85,7 @@ class H5CentroidsStore(Store, BaseCentroids):
         return self._xs
 
     @property
-    def chunk_info(self) -> ty.Optional[ty.Dict[int, np.ndarray]]:
+    def chunk_info(self) -> ty.Optional[dict[int, np.ndarray]]:
         """Returns chunked data."""
         from natsort import natsorted
 
@@ -174,7 +174,7 @@ class H5CentroidsStore(Store, BaseCentroids):
         return self._ion_labels["ppm"][index]
 
     @property
-    def labels(self) -> ty.Tuple[np.ndarray, ty.Optional[np.ndarray], ty.Optional[np.ndarray]]:
+    def labels(self) -> tuple[np.ndarray, ty.Optional[np.ndarray], ty.Optional[np.ndarray]]:
         """Return all available labels."""
         return self.xs, None, None
 
@@ -235,7 +235,7 @@ class LazyPeaksProxy:
         return np.concatenate(res)
 
     @property
-    def shape(self) -> ty.Tuple[int, int]:
+    def shape(self) -> tuple[int, int]:
         """Return shape."""
         chunk_info = self.obj.chunk_info
         n_px = sum(len(indices) for indices in chunk_info.values())

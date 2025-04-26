@@ -1,4 +1,5 @@
 """Processing."""
+
 import typing as ty
 
 import numba
@@ -41,7 +42,7 @@ def accumulate_peaks_centroid(peaks_min: np.ndarray, peaks_max: np.ndarray, x: n
 IndicesType = numba.types.List(np.ndarray)
 
 
-def accumulate_peaks_profile(indices: ty.List[np.ndarray], y: np.ndarray):
+def accumulate_peaks_profile(indices: list[np.ndarray], y: np.ndarray):
     """Sum intensities for specified number of peaks where spectra are in profile-mode."""
     return _accumulate_peaks_profile(numba.typed.List(indices), y)
 
@@ -60,10 +61,10 @@ def optimize_chunks_along_axis(
     axis: int,
     *,
     array: ty.Optional[np.ndarray] = None,
-    shape: ty.Optional[ty.Tuple[int, ...]] = None,
+    shape: ty.Optional[tuple[int, ...]] = None,
     dtype=None,
     max_size: int = 1e6,
-) -> ty.Optional[ty.Tuple[int, ...]]:
+) -> ty.Optional[tuple[int, ...]]:
     """Optimize chunk size along specified axis."""
     if array is not None:
         dtype, shape = array.dtype, array.shape

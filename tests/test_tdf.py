@@ -1,7 +1,9 @@
 """Tests for imzml files."""
+
 import pytest
-from imzy import TDFReader, get_reader
 from koyo.system import IS_MAC
+
+from imzy import TDFReader, get_reader
 
 from .utilities import get_tdf_data
 

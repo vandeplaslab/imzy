@@ -1,11 +1,11 @@
 """Utility functions."""
-import typing as ty
+
 from pathlib import Path
 
 from koyo.typing import PathLike
 
 
-def get_rois(path: PathLike) -> ty.List[int]:
+def get_rois(path: PathLike) -> list[int]:
     """Get ROIs from file."""
     path = Path(path)
     if path.suffix == ".imzML":
@@ -16,7 +16,7 @@ def get_rois(path: PathLike) -> ty.List[int]:
         raise ValueError(f"Unsupported file type: {path.suffix}")
 
 
-def get_rois_from_bruker_d(path: PathLike) -> ty.List[int]:
+def get_rois_from_bruker_d(path: PathLike) -> list[int]:
     """Get ROIs from Bruker .d file."""
     import sqlite3
 
@@ -47,6 +47,3 @@ def _safe_rmtree(path):
         rmtree(path)
     except (OSError, FileNotFoundError):
         pass
-
-
-

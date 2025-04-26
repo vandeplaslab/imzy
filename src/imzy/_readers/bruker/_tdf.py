@@ -1,4 +1,5 @@
 """Python wrapper for timsdata.dll."""
+
 import typing as ty
 from ctypes import (
     CDLL,
@@ -94,7 +95,7 @@ DLL.tims_extract_profile_for_frame.restype = c_uint32
 
 
 class ChromatogramJob(Structure):
-    _fields_: ty.ClassVar[ty.List] = [
+    _fields_: ty.ClassVar[list] = [
         ("id", c_int64),
         ("time_begin", c_double),
         ("time_end", c_double),
@@ -110,7 +111,7 @@ CHROMATOGRAM_TRACE_SINK = CFUNCTYPE(c_uint32, c_int64, c_uint32, POINTER(c_int64
 DLL.tims_extract_chromatograms.argtypes = [c_uint64, CHROMATOGRAM_JOB_GENERATOR, CHROMATOGRAM_TRACE_SINK, c_void_p]
 DLL.tims_extract_chromatograms.restype = c_uint32
 
-convfunc_argtypes: ty.List = [c_uint64, c_int64, POINTER(c_double), POINTER(c_double), c_uint32]
+convfunc_argtypes: list = [c_uint64, c_int64, POINTER(c_double), POINTER(c_double), c_uint32]
 
 DLL.tims_index_to_mz.argtypes = convfunc_argtypes
 DLL.tims_index_to_mz.restype = c_uint32
@@ -232,7 +233,7 @@ class TDFReader(BrukerBaseReader):
         # convert to appropriate format and apply m/z restrictions
         return out_arr.asformat("csr")
 
-    def _read_spectrum(self, index: int) -> ty.Tuple[np.ndarray, np.ndarray]:
+    def _read_spectrum(self, index: int) -> tuple[np.ndarray, np.ndarray]:
         """Return profile spectrum."""
         return self.mz_x, self.read_profile_spectrum(index)
 

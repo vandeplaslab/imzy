@@ -1,4 +1,5 @@
 """Ontology utilities."""
+
 import typing as ty
 from datetime import datetime
 from warnings import warn
@@ -86,9 +87,9 @@ def lookup_and_convert_cv_param(accession, raw_name, value, unit_accession=None)
         fixed_accession = ACCESSION_FIX_MAPPING.get((accession, raw_name))
         if fixed_accession is not None:
             warn(
-                'Accession {} ("{}") found with mismatched name "{}". '
+                f'Accession {accession} ("{name}") found with mismatched name "{raw_name}". '
                 "This is a known bug with some imzML conversion software - using accession "
-                '{} ("{}") instead.'.format(accession, name, raw_name, fixed_accession, raw_name),
+                f'{fixed_accession} ("{raw_name}") instead.',
                 stacklevel=2,
             )
             accession = fixed_accession

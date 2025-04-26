@@ -1,4 +1,5 @@
 """imzy: A new reader/writer interface to imzML and other imaging mass spectrometry formats."""
+
 from functools import lru_cache
 from importlib import metadata as importlib_metadata
 

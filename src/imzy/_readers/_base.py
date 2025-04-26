@@ -50,18 +50,18 @@ class BaseReader:
         """Return mass spectrum."""
         return self._read_spectrum(index)
 
-    def get_summed_spectrum(self, indices: ty.Iterable[int], silent: bool = False) -> ty.Tuple[np.ndarray, np.ndarray]:
+    def get_summed_spectrum(self, indices: ty.Iterable[int], silent: bool = False) -> tuple[np.ndarray, np.ndarray]:
         """Sum pixel data to produce summed mass spectrum."""
         raise NotImplementedError("Must implement method")
 
-    def _read_spectrum(self, index: int) -> ty.Tuple[np.ndarray, np.ndarray]:
+    def _read_spectrum(self, index: int) -> tuple[np.ndarray, np.ndarray]:
         raise NotImplementedError("Must implement method")
 
-    def _read_spectra(self, indices: ty.Optional[np.ndarray] = None) -> ty.Iterator[ty.Tuple[np.ndarray, np.ndarray]]:
+    def _read_spectra(self, indices: ty.Optional[np.ndarray] = None) -> ty.Iterator[tuple[np.ndarray, np.ndarray]]:
         raise NotImplementedError("Must implement method")
 
     @property
-    def rois(self) -> ty.List[int]:
+    def rois(self) -> list[int]:
         """Return list of ROIs."""
         raise NotImplementedError("Must implement method")
 
@@ -92,7 +92,7 @@ class BaseReader:
     def __iter__(self) -> "BaseReader":
         return self
 
-    def __next__(self) -> ty.Tuple[np.ndarray, np.ndarray]:
+    def __next__(self) -> tuple[np.ndarray, np.ndarray]:
         """Get next spectrum."""
         if self._current < self.n_pixels - 1:
             self._current += 1
@@ -101,7 +101,7 @@ class BaseReader:
             self._current = -1
             raise StopIteration
 
-    def __getitem__(self, item: int) -> ty.Tuple[np.ndarray, np.ndarray]:
+    def __getitem__(self, item: int) -> tuple[np.ndarray, np.ndarray]:
         """Retrieve spectrum."""
         return self.get_spectrum(item)
 
@@ -132,11 +132,11 @@ class BaseReader:
         return array[self.y_coordinates, self.x_coordinates]
 
     @property
-    def image_shape(self) -> ty.Tuple[int, int]:
+    def image_shape(self) -> tuple[int, int]:
         """Return shape of the image."""
         return self.y_size, self.x_size
 
-    def index_to_xy_coordinates(self, index: int) -> ty.Tuple[int, int]:
+    def index_to_xy_coordinates(self, index: int) -> tuple[int, int]:
         """Convert index to x, y coordinates."""
         return self.x_coordinates[index], self.y_coordinates[index]
 
@@ -309,7 +309,7 @@ class BaseReader:
         tol: ty.Optional[float] = None,
         ppm: ty.Optional[float] = None,
         as_flat: bool = True,
-        chunk_size: ty.Optional[ty.Tuple[int, int]] = None,
+        chunk_size: ty.Optional[tuple[int, int]] = None,
         silent: bool = False,
     ) -> Path:
         """Export many ion images for specified m/z values (+ tolerance) to Zarr array."""
@@ -452,14 +452,14 @@ class BaseReader:
 
     def spectra_iter(
         self, indices: ty.Optional[ty.Iterable[int]] = None, silent: bool = False
-    ) -> ty.Generator[ty.Tuple[np.ndarray, np.ndarray], None, None]:
+    ) -> ty.Generator[tuple[np.ndarray, np.ndarray], None, None]:
         """Yield spectra."""
         indices = self.pixels if indices is None else np.asarray(indices)
         yield from tqdm(
             self._read_spectra(indices), total=len(indices), disable=silent, miniters=500, desc="Iterating spectra..."
         )
 
-    def _write_cache(self, filename: str, data: ty.Dict) -> None:
+    def _write_cache(self, filename: str, data: dict) -> None:
         """Sometimes, reading data from raw data can be very slow, so we can cache it instead.
 
         Cache data is usually written inside the raw directory (e.g. inside Bruker .d or Waters .raw) or next to it
@@ -489,7 +489,7 @@ class BaseReader:
             with suppress(FileNotFoundError):
                 os.remove(tmp_filename)
 
-    def _read_cache(self, filename: str, keys: ty.List[str]) -> ty.Dict[str, ty.Optional[np.ndarray]]:
+    def _read_cache(self, filename: str, keys: list[str]) -> dict[str, ty.Optional[np.ndarray]]:
         """Load cache metadata.
 
         Parameters
