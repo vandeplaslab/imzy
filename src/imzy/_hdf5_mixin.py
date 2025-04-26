@@ -6,5 +6,6 @@ def check_hdf5() -> None:
     try:
         import h5py
         import hdf5plugin
+        import yoki5
     except ImportError:
-        raise ImportError("Please install `h5py` and `hdf5plugins` to continue. You can do `pip install imzy[hdf5]")
+        raise ImportError("Please install `yoki5` to continue. You can do `pip install imzy[hdf5]")
