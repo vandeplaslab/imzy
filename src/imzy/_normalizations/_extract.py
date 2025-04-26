@@ -109,10 +109,11 @@ def compute_normalizations(input_dir: Path, clean: bool = True, silent: bool = F
             desc="Computing normalizations...",
         )
     ):
+        y = y.astype(np.float32)
         try:
-            norm_array[i] = calculate_normalizations_optimized(y.astype(np.float32))
+            norm_array[i] = calculate_normalizations_optimized(y)
         except Exception:
-            norm_array[i] = calculate_normalizations_optimized.py_func(y.astype(np.float32))
+            norm_array[i] = calculate_normalizations_optimized.py_func(y)
     norm_array = np.nan_to_num(norm_array, nan=1.0)
     # clean-up normalizations
     with np.errstate(invalid="ignore", divide="ignore"), warnings.catch_warnings():
