@@ -6,11 +6,11 @@ from ims_utils.spectrum import find_between_batch
 from koyo.typing import PathLike
 from koyo.utilities import chunks
 from tqdm import tqdm
-from yoki5.utilities import parse_to_attribute
+from yoki5.utilities import optimize_chunks_along_axis, parse_to_attribute
 
 from imzy import get_reader
 from imzy._typing import SpatialInfo
-from imzy.processing import accumulate_peaks_centroid, accumulate_peaks_profile, optimize_chunks_along_axis
+from imzy.processing import accumulate_peaks_centroid, accumulate_peaks_profile
 from imzy.utilities import _safe_rmtree
 
 try:

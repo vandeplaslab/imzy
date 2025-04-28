@@ -5,27 +5,8 @@ import typing as ty
 import numba
 import numpy as np
 from ims_utils.spectrum import find_between_batch
-from scipy.interpolate import interp1d
 
-
-def resample_ppm(new_mz: np.ndarray, mz_array: np.ndarray, intensity_array: np.ndarray):
-    """Resample array at specified ppm."""
-    mz_idx = np.digitize(mz_array, new_mz, True)
-
-    # sum together values from multiple bins
-    y_ppm = np.zeros_like(new_mz)
-    for i, idx in enumerate(mz_idx):
-        try:
-            y_ppm[idx] += intensity_array[i]
-        except IndexError:
-            pass
-    return y_ppm
-
-
-def interpolate_ppm(new_mz: np.ndarray, mz_array: np.ndarray, intensity_array: np.ndarray):
-    """Resample array at specified ppm."""
-    func = interp1d(mz_array, intensity_array, fill_value=0, bounds_error=False)
-    return new_mz, func(new_mz)
+IndicesType = numba.types.List(np.ndarray)
 
 
 @numba.njit(cache=True, fastmath=True)
@@ -39,16 +20,13 @@ def accumulate_peaks_centroid(peaks_min: np.ndarray, peaks_max: np.ndarray, x: n
     return result
 
 
-IndicesType = numba.types.List(np.ndarray)
-
-
 def accumulate_peaks_profile(indices: list[np.ndarray], y: np.ndarray):
     """Sum intensities for specified number of peaks where spectra are in profile-mode."""
     return _accumulate_peaks_profile(numba.typed.List(indices), y)
 
 
 @numba.njit(cache=True, fastmath=True)
-def _accumulate_peaks_profile(indices: IndicesType, y: np.ndarray):
+def _accumulate_peaks_profile(indices: IndicesType, y: np.ndarray) -> np.ndarray:
     """Sum intensities for specified number of peaks where spectra are in profile-mode."""
     result = np.zeros(len(indices), dtype=y.dtype)
     for i, mask in enumerate(indices):
@@ -57,31 +35,12 @@ def _accumulate_peaks_profile(indices: IndicesType, y: np.ndarray):
     return result
 
 
-def optimize_chunks_along_axis(
-    axis: int,
-    *,
-    array: ty.Optional[np.ndarray] = None,
-    shape: ty.Optional[tuple[int, ...]] = None,
-    dtype=None,
-    max_size: int = 1e6,
-) -> ty.Optional[tuple[int, ...]]:
-    """Optimize chunk size along specified axis."""
-    if array is not None:
-        dtype, shape = array.dtype, array.shape
-    elif shape is None or dtype is None:
-        raise ValueError("You must specify either an array or `shape` and `dtype`")
-    assert len(shape) == 2, "Only supporting 2d arrays at the moment."
-    assert axis <= 1, "Only supporting 2d arrays at the moment, use -1, 0 or 1 in the `axis` argument"
-    assert hasattr(dtype, "itemsize"), "Data type must have the attribute 'itemsize'"
-    item_size = np.dtype(dtype).itemsize
-
-    if max_size == 0:
-        return None
-
-    n = 0
-    max_n = shape[1] if axis == 0 else shape[0]
-    while (n * item_size * shape[axis]) <= max_size and n < max_n:
-        n += 1
-    if n < 1:
-        n = 1
-    return (shape[0], n) if axis == 0 else (n, shape[1])
+# Precompile numba functions
+x = np.arange(10, dtype=np.float32)
+y = np.random.randn(10)
+mins = np.array([1, 2], dtype=np.float32)
+maxs = np.array([3, 4], dtype=np.float32)
+accumulate_peaks_centroid(mins, maxs, x, y)
+mask = np.full(10, False, dtype=bool)
+mask[1:3] = True
+accumulate_peaks_profile([mask], y)
