@@ -207,4 +207,5 @@ def calculate_normalizations_optimized(spectrum: np.ndarray) -> np.ndarray:
 
 
 # Precompile the function
+calculate_normalizations(np.zeros(10, dtype=np.float32))
 calculate_normalizations_optimized(np.zeros(10, dtype=np.float32))
