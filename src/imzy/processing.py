@@ -36,11 +36,19 @@ def _accumulate_peaks_profile(indices: IndicesType, y: np.ndarray) -> np.ndarray
 
 
 # Precompile numba functions
-x = np.arange(10, dtype=np.float32)
-y = np.random.randn(10)
-mins = np.array([1, 2], dtype=np.float32)
-maxs = np.array([3, 4], dtype=np.float32)
-accumulate_peaks_centroid(mins, maxs, x, y)
-mask = np.full(10, False, dtype=bool)
-mask[1:3] = True
-accumulate_peaks_profile([mask], y)
+def _precompute():
+    import os
+
+    if not os.environ.get("IMZY_PRECOMPUTE", "0") == "1":
+        return
+    x = np.arange(10, dtype=np.float32)
+    y = np.random.randn(10)
+    mins = np.array([1, 2], dtype=np.float32)
+    maxs = np.array([3, 4], dtype=np.float32)
+    accumulate_peaks_centroid(mins, maxs, x, y)
+    mask = np.full(10, False, dtype=bool)
+    mask[1:3] = True
+    accumulate_peaks_profile([mask], y)
+
+
+_precompute()

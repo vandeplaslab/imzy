@@ -207,5 +207,13 @@ def calculate_normalizations_optimized(spectrum: np.ndarray) -> np.ndarray:
 
 
 # Precompile numba functions
-calculate_normalizations(np.zeros(10, dtype=np.float32))
-calculate_normalizations_optimized(np.zeros(10, dtype=np.float32))
+def _precompute():
+    import os
+
+    if not os.environ.get("IMZY_PRECOMPUTE", "0") == "1":
+        return
+    calculate_normalizations(np.zeros(10, dtype=np.float32))
+    calculate_normalizations_optimized(np.zeros(10, dtype=np.float32))
+
+
+_precompute()
