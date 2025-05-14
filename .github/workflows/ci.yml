@@ -44,7 +44,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
 
-      - run: uv sync --no-dev --group test
+      - run: uv sync --no-dev --group test --extra zarr --extra hdf5 --extra plot
 
       - name: Test
         run: uv run coverage run -p -m pytest -v --color=yes
