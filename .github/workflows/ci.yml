@@ -47,6 +47,8 @@ jobs:
       - run: uv sync --no-dev --group test --extra zarr --extra hdf5 --extra plot
 
       - name: Test
+        env:
+          NUMBA_DISABLE_JIT: ${{ matrix.os == 'ubuntu-latest' && '1' || '0' }}
         run: uv run coverage run -p -m pytest -v --color=yes
 
       - name: Upload coverage
