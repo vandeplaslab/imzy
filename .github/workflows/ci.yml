@@ -17,41 +17,49 @@ concurrency:
 
 jobs:
   check-manifest:
+    name: Check Manifest
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: pipx run check-manifest
+      - uses: astral-sh/setup-uv@v6
+      - run: uvx check-manifest
 
   test:
-    uses: pyapp-kit/workflows/.github/workflows/test-pyrepo.yml@v2
-    secrets: inherit
-    with:
-      os: ${{ matrix.os }}
-      python-version: ${{ matrix.python-version }}
-      pip-install-pre-release: ${{ github.event_name == 'schedule' }}
-      report-failures: ${{ github.event_name == 'schedule' }}
-      extras: 'test,all'
-      # changing this to "artifact" prevents uploading to codecov here,
-      # instead it uploads an artifact with the coverage data
-      coverage-upload: artifact
+    name: Test (${{ matrix.os }} py${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    env:
+      UV_NO_SYNC: "1"
+      UV_MANAGED_PYTHON: "1"
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
-        python-version: ["3.10", "3.11", "3.12"]#, "3.13"]
-        include:
-          - python-version: "3.9"
-            os: ubuntu-latest
-          - python-version: "3.9"
-            os: macos-13
-          - python-version: "3.11"
-            os: macos-latest
-          - python-version: "3.12"
-            os: macos-latest
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+
+      - run: uv sync --no-dev --group test
+
+      - name: Test
+        run: uv run coverage run -p -m pytest -v --color=yes
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: covreport-${{ matrix.os }}-py${{ matrix.python-version }}
+          path: ./.coverage*
+          include-hidden-files: true
 
 
   # now add another job to combine and upload the coverage
   upload_coverage:
+    name: Upload coverage
     if: always()
     needs: [test]
     uses: pyapp-kit/workflows/.github/workflows/upload-coverage.yml@v2

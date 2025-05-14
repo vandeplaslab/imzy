@@ -60,21 +60,27 @@ plot = ["matplotlib"]
 zarr = ["zarr", "dask", "rechunker"]
 hdf5 = ["yoki5", "h5py", "hdf5plugin"]
 all = ["imzy[hdf5]", "imzy[zarr]", "imzy[plot]"]
+
+[dependency-groups]
 test = [
-    "pytest>=7.0",
-    "pytest-cov",
+    "pytest>=8.3.5",
+    "pytest-cov>=6.1.1",
+]
+docs = [
+  "mkdocs",
+  "mkdocs-material",
+  "markdown-changelog"
 ]
 dev = [
-    "ipython",
-    "mypy",
-    "pdbpp",
-    "pre-commit",
-    "pytest",
-    "rich",
-    "ruff",
-    "imzy[test]"
+  { include-group = "test" },
+  { include-group = "docs" },
+  "ipython",
+  "mypy",
+  "pdbpp",
+  "pre-commit",
+  "rich",
+  "ruff",
 ]
-docs = ["mkdocs", "mkdocs-material", "markdown-changelog"]
 
 
 [project.urls]
@@ -155,6 +161,17 @@ exclude = [
 
 
 # https://coverage.readthedocs.io/en/6.4/config.html
+[tool.coverage.run]
+source = ["src"]
+omit = [
+  "tests/*",
+  "*/__init__.py",
+  "raise NotImplementedError",
+  "def __repr__",
+  "if __name__ == .__main__.:",
+  "def test",
+]
+
 [tool.coverage.report]
 exclude_lines = [
     "pragma: no cover",
@@ -164,16 +181,7 @@ exclude_lines = [
     "\\.\\.\\.",
     "raise NotImplementedError()",
 ]
-[tool.coverage.run]
-source = ["src"]
-omit = [
-    "tests/*",
-   "*/__init__.py",
-   "raise NotImplementedError",
-   "def __repr__",
-   "if __name__ == .__main__.:",
-   "def test",
-]
+
 
 # https://github.com/mgedmin/check-manifest#configuration
 [tool.check-manifest]
