@@ -1,6 +1,7 @@
 """imzML reader."""
 
 import typing as ty
+from contextlib import suppress
 from pathlib import Path
 from warnings import warn
 
@@ -226,7 +227,8 @@ class IMZMLReader(BaseReader):
         mz_y = np.zeros_like(mz_x, dtype=np.float64)
         for x, y in tqdm(self._read_spectra(indices), total=len(indices), disable=silent, desc="Summing spectra..."):
             x, y = trim_axis(x, y, self._mz_min, self._mz_max)
-            mz_y = set_ppm_axis(mz_x, mz_y, x, y)
+            with suppress(IndexError):
+                mz_y = set_ppm_axis(mz_x, mz_y, x, y)
         return mz_x, mz_y
 
     def _estimate_mass_range(self) -> tuple[float, float]:
@@ -331,8 +333,8 @@ def read_imzml_metadata(root, sl: str = "{http://psi.hupo.org/ms/mzml}"):
                 warn(Warning(f"Wrong data type in XML file. Skipped attribute '{name}'"), stacklevel=3)
 
     metadata_dict = {}
-    scan_settings_list_elem = root.find("%sscanSettingsList" % sl)
-    instrument_config_list_elem = root.find("%sinstrumentConfigurationList" % sl)
+    scan_settings_list_elem = root.find(f"{sl}scanSettingsList")
+    instrument_config_list_elem = root.find(f"{sl}instrumentConfigurationList")
     supported_params_1 = [
         ("max count of pixels x", int),
         ("max count of pixels y", int),
@@ -462,11 +464,11 @@ def assign_precision(int_group, mz_group, sl: str = "{http://psi.hupo.org/ms/mzm
 
 def process_spectrum(elem, mz_group_id, int_group_id, sl: str = "{http://psi.hupo.org/ms/mzml}"):
     """Process spectrum."""
-    array_list_item = elem.find("%sbinaryDataArrayList" % sl)
+    array_list_item = elem.find(f"{sl}binaryDataArrayList")
     element_list = list(array_list_item)
     mz_group, int_group = None, None
     for element in element_list:
-        ref = element.find("%sreferenceableParamGroupRef" % sl).attrib["ref"]
+        ref = element.find(f"{sl}referenceableParamGroupRef").attrib["ref"]
         if ref == mz_group_id:
             mz_group = element
         elif ref == int_group_id:
