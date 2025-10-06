@@ -83,9 +83,9 @@ class BrukerBaseReader(BaseReader):
         """Flag to indicate whether the data is in centroid or profile mode."""
         try:
             self._read_spectrum(1)
-            return True
-        except RuntimeError:
             return False
+        except RuntimeError:
+            return True
 
     def get_summed_spectrum(self, indices: ty.Iterable[int], silent: bool = False) -> tuple[np.ndarray, np.ndarray]:
         """Sum pixel data to produce summed mass spectrum."""

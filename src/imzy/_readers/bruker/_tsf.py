@@ -83,6 +83,7 @@ class TSFReader(BrukerBaseReader):
         self.use_recalibrated_state = use_recalibrated_state
         self.line_buffer_size = 1024  # may grow in read...Spectrum()
         self.profile_buffer_size = 1024  # may grow in read...Spectrum()
+        self._is_centroid: ty.Optional[bool] = None
         super().__init__(path)
 
     def _init(self) -> None:
@@ -99,6 +100,17 @@ class TSFReader(BrukerBaseReader):
 
         # data attributes
         self.n_mz_bins = int(np.round(self.mz_to_index(1, [self.mz_max]))[0])
+
+    @property
+    def is_centroid(self) -> bool:
+        """Determine whether the data is centroided."""
+        if self._is_centroid is None:
+            try:
+                self.read_profile_spectrum(1)
+                self._is_centroid = False
+            except RuntimeError:
+                self._is_centroid = True
+        return self._is_centroid
 
     def _call_conversion_func(self, index: int, input_data: np.ndarray, func: ty.Callable) -> np.ndarray:
         success, out = self._call_conversion_func_base(index, input_data, func)
@@ -139,6 +151,8 @@ class TSFReader(BrukerBaseReader):
         return mzs[0:required_len], intensity_buf[0:required_len]
 
     def _read_spectrum(self, index: int) -> tuple[np.ndarray, np.ndarray]:
+        if self.is_centroid:
+            return self.read_centroid_spectrum(index)
         return self.mz_x, self.read_profile_spectrum(index)
 
     # Output intensities
