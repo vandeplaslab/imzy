@@ -45,7 +45,13 @@ DLL.tsf_get_last_error_string.argtypes = [c_char_p, c_uint32]
 DLL.tsf_get_last_error_string.restype = c_uint32
 DLL.tsf_has_recalibrated_state.argtypes = [c_uint64]
 DLL.tsf_has_recalibrated_state.restype = c_uint32
-DLL.tsf_read_line_spectrum_v2.argtypes = [c_uint64, c_int64, POINTER(c_double), POINTER(c_float), c_int32]
+DLL.tsf_read_line_spectrum_v2.argtypes = [
+    c_uint64,
+    c_int64,
+    POINTER(c_double),
+    POINTER(c_float),
+    c_int32,
+]
 DLL.tsf_read_line_spectrum_v2.restype = c_int32
 DLL.tsf_read_line_spectrum_with_width_v2.argtypes = [
     c_uint64,
@@ -147,8 +153,40 @@ class TSFReader(BrukerBaseReader):
                 break
 
         mzs = self._call_conversion_func(index, index_buf[0:required_len], self._dll_index_to_mz_func)
-
         return mzs[0:required_len], intensity_buf[0:required_len]
+
+    # Output: tuple of lists (indices, intensities, widths)
+    def read_centroid_spectrum_with_width(self, index: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Read centroid spectrum."""
+        # buffer-growing loop
+        while True:
+            cnt = int(self.line_buffer_size)  # necessary cast to run with python 3.5
+            index_buf = np.empty(shape=cnt, dtype=np.float64)
+            intensity_buf = np.empty(shape=cnt, dtype=np.float32)
+            width_buf = np.empty(shape=cnt, dtype=np.float32)
+            index = index + 1  # We need to add 1 to the index to match timsTOF 1-index with numpy self.pixels
+            required_len = self.dll.tsf_read_line_spectrum_with_width_v2(
+                self.handle,
+                index,
+                index_buf.ctypes.data_as(POINTER(c_double)),
+                intensity_buf.ctypes.data_as(POINTER(c_float)),
+                width_buf.ctypes.data_as(POINTER(c_float)),
+                self.line_buffer_size,
+            )
+
+            if required_len < 0:
+                _throw_last_error(self.dll)
+
+            if required_len > self.line_buffer_size:
+                if required_len > 16777216:
+                    # arbitrary limit for now...
+                    raise RuntimeError("Maximum expected frame size exceeded.")
+                self.line_buffer_size = required_len  # grow buffer
+            else:
+                break
+
+        mzs = self._call_conversion_func(index, index_buf[0:required_len], self._dll_index_to_mz_func)
+        return mzs[0:required_len], intensity_buf[0:required_len], width_buf[0:required_len]
 
     def _read_spectrum(self, index: int) -> tuple[np.ndarray, np.ndarray]:
         if self.is_centroid:
