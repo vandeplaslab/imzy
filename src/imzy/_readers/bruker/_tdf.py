@@ -21,7 +21,7 @@ from enum import Enum
 from pathlib import Path
 
 import numpy as np
-from koyo.system import IS_LINUX, IS_WIN
+from koyo.system import IS_LINUX, IS_MAC, IS_WIN
 from koyo.typing import PathLike
 from scipy import sparse
 
@@ -173,7 +173,7 @@ class TDFReader(BrukerBaseReader):
     ):
         self.use_recalibrated_state = use_recalibrated_state
         self.pressure_compensation_strategy = pressure_compensation_strategy
-        self.initial_frame_buffer_size = 1024  # may grow in _read_scans()
+        self.buffer_size_profile = 1024  # may grow in _read_scans()
         super().__init__(path)
 
     def _init(self) -> None:
@@ -221,7 +221,7 @@ class TDFReader(BrukerBaseReader):
 
     # noinspection PyMissingOrEmptyDocstring
     def read_frame(self, frame_id: int) -> sparse.csr_matrix:
-        buffer = self._read_scan_buffer(frame_id, 0, self.n_dt_bins)
+        buffer = self._read_scan_buffer_profile(frame_id, 0, self.n_dt_bins)
 
         # get COO matrix data
         data, rows, cols = get_sparse_data_from_buffer(buffer, 0, self.n_mz_bins, 0, self.n_dt_bins)
@@ -241,7 +241,7 @@ class TDFReader(BrukerBaseReader):
         """Return profile spectrum."""
         return self.read_frame(index + 1).sum(axis=1).A.flatten()
 
-    def _read_scan_buffer(self, index: int, scan_begin: int, scan_end: int) -> np.ndarray:
+    def _read_scan_buffer_profile(self, index: int, scan_begin: int, scan_end: int) -> np.ndarray:
         """Read a range of scans from a frame.
 
         Returning the data in the low-level buffer format defined for the 'tims_read_scans_v2' DLL function
@@ -249,66 +249,23 @@ class TDFReader(BrukerBaseReader):
         """
         # buffer-growing loop
         while True:
-            cnt = int(self.initial_frame_buffer_size)  # necessary cast to run with python 3.5
+            cnt = int(self.buffer_size_profile)  # necessary cast to run with python 3.5
             buf = np.empty(shape=cnt, dtype=np.uint32)
-            n = 4 * cnt
 
             required_len = self.dll.tims_read_scans_v2(
-                self.handle, index, scan_begin, scan_end, buf.ctypes.data_as(POINTER(c_uint32)), n
+                self.handle, index, scan_begin, scan_end, buf.ctypes.data_as(POINTER(c_uint32)), cnt
             )
             if required_len == 0:
                 _throw_last_error(self.dll)
 
-            if required_len > n:
+            if required_len > cnt:
                 if required_len > 16777216:
                     # arbitrary limit for now...
                     raise RuntimeError("Maximum expected frame size exceeded.")
-                self.initial_frame_buffer_size = required_len / 4 + 1  # grow buffer
+                self.buffer_size_profile = int(required_len / 4 + 1)  # grow buffer
             else:
                 break
         return buf
-
-    # def _read_scans(self, index, scan_begin, scan_end):
-    #     """Read a range of scans from a frame, returning a list of scans.
-
-    #     Each scan being represented as a tuple (index_array, intensity_array).
-
-    #     """
-    #     buf = self._read_scan_buffer(index, scan_begin, scan_end)
-
-    #     result = []
-    #     d = scan_end - scan_begin
-    #     for i in range(scan_begin, scan_end):
-    #         n_peaks = buf[i - scan_begin]
-    #         indices = buf[d : d + n_peaks]
-    #         d += n_peaks
-    #         intensities = buf[d : d + n_peaks]
-    #         d += n_peaks
-    #         result.append((indices, intensities))
-    #     return result
-
-    # # read peak-picked spectra for a tims frame;
-    # # returns a pair of arrays (mz_values, area_values).
-    # def extract_centroid_spectrum_for_frame(self, index, scan_begin, scan_end, peak_picker_resolution=None):
-    #     result = None
-
-    #     @MSMS_SPECTRUM_FUNCTOR
-    #     def callback_for_dll(precursor_id, num_peaks, mz_values, area_values):
-    #         nonlocal result
-    #         result = (mz_values[0:num_peaks], area_values[0:num_peaks])
-
-    #     if peak_picker_resolution is None:
-    #         rc = self.dll.tims_extract_centroided_spectrum_for_frame_v2(
-    #             self.handle, index, scan_begin, scan_end, callback_for_dll, None
-    #         )  # python dos not need the additional context, we have nonlocal
-    #     else:
-    #         rc = self.dll.tims_extract_centroided_spectrum_for_frame_ext(
-    #             self.handle, index, scan_begin, scan_end, peak_picker_resolution, callback_for_dll, None
-    #         )  # python dos not need the additional context, we have nonlocal
-
-    #     if rc == 0:
-    #         _throw_last_error(self.dll)
-    #     return result
 
     def get_n_mobility_bins(self, quick: bool = True) -> int:
         """Get the number of ion mobility bins in the file."""
@@ -327,8 +284,6 @@ class TDFReader(BrukerBaseReader):
 
 def is_tdf(path: PathLike) -> bool:
     """Check if path is Bruker .d/tdf."""
-    from koyo.system import IS_MAC
-
     path = Path(path)
     return (
         path.suffix.lower() == ".d"

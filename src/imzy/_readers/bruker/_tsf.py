@@ -1,5 +1,6 @@
 """Python wrapper for timsdata.dll for reading tsf."""
 
+import sqlite3
 import typing as ty
 from ctypes import (
     CDLL,
@@ -17,7 +18,7 @@ from ctypes import (
 from pathlib import Path
 
 import numpy as np
-from koyo.system import IS_LINUX, IS_WIN
+from koyo.system import IS_LINUX, IS_MAC, IS_WIN
 from koyo.typing import PathLike
 
 from imzy._readers.bruker._mixin import BrukerBaseReader
@@ -87,8 +88,8 @@ class TSFReader(BrukerBaseReader):
 
     def __init__(self, path: PathLike, use_recalibrated_state: bool = False):
         self.use_recalibrated_state = use_recalibrated_state
-        self.line_buffer_size = 1024  # may grow in read...Spectrum()
-        self.profile_buffer_size = 1024  # may grow in read...Spectrum()
+        self.buffer_size_profile = 1024  # may grow in read...Spectrum()
+        self.buffer_size_centroid = 1024  # may grow in read...Spectrum()
         self._is_centroid: ty.Optional[bool] = None
         super().__init__(path)
 
@@ -124,12 +125,17 @@ class TSFReader(BrukerBaseReader):
             _throw_last_error(self.dll)
         return out
 
-    # Output: tuple of lists (indices, intensities)
+    def _read_spectrum(self, index: int) -> tuple[np.ndarray, np.ndarray]:
+        if self.is_centroid:
+            return self.read_centroid_spectrum(index)
+        return self.mz_x, self.read_profile_spectrum(index)
+
+    # Output: tuple of lists (m/zs, intensities)
     def read_centroid_spectrum(self, index: int) -> tuple[np.ndarray, np.ndarray]:
         """Read centroid spectrum."""
         # buffer-growing loop
         while True:
-            cnt = int(self.line_buffer_size)  # necessary cast to run with python 3.5
+            cnt = int(self.buffer_size_centroid)  # necessary cast to run with python 3.5
             index_buf = np.empty(shape=cnt, dtype=np.float64)
             intensity_buf = np.empty(shape=cnt, dtype=np.float32)
             index = index + 1  # We need to add 1 to the index to match timsTOF 1-index with numpy self.pixels
@@ -138,17 +144,17 @@ class TSFReader(BrukerBaseReader):
                 index,
                 index_buf.ctypes.data_as(POINTER(c_double)),
                 intensity_buf.ctypes.data_as(POINTER(c_float)),
-                self.line_buffer_size,
+                self.buffer_size_centroid,
             )
 
             if required_len < 0:
                 _throw_last_error(self.dll)
 
-            if required_len > self.line_buffer_size:
+            if required_len > self.buffer_size_centroid:
                 if required_len > 16777216:
                     # arbitrary limit for now...
                     raise RuntimeError("Maximum expected frame size exceeded.")
-                self.line_buffer_size = required_len  # grow buffer
+                self.buffer_size_centroid = required_len  # grow buffer
             else:
                 break
 
@@ -160,7 +166,7 @@ class TSFReader(BrukerBaseReader):
         """Read centroid spectrum."""
         # buffer-growing loop
         while True:
-            cnt = int(self.line_buffer_size)  # necessary cast to run with python 3.5
+            cnt = int(self.buffer_size_centroid)  # necessary cast to run with python 3.5
             index_buf = np.empty(shape=cnt, dtype=np.float64)
             intensity_buf = np.empty(shape=cnt, dtype=np.float32)
             width_buf = np.empty(shape=cnt, dtype=np.float32)
@@ -171,65 +177,68 @@ class TSFReader(BrukerBaseReader):
                 index_buf.ctypes.data_as(POINTER(c_double)),
                 intensity_buf.ctypes.data_as(POINTER(c_float)),
                 width_buf.ctypes.data_as(POINTER(c_float)),
-                self.line_buffer_size,
+                self.buffer_size_centroid,
             )
 
             if required_len < 0:
                 _throw_last_error(self.dll)
 
-            if required_len > self.line_buffer_size:
+            if required_len > self.buffer_size_centroid:
                 if required_len > 16777216:
                     # arbitrary limit for now...
                     raise RuntimeError("Maximum expected frame size exceeded.")
-                self.line_buffer_size = required_len  # grow buffer
+                self.buffer_size_centroid = required_len  # grow buffer
             else:
                 break
 
         mzs = self._call_conversion_func(index, index_buf[0:required_len], self._dll_index_to_mz_func)
         return mzs[0:required_len], intensity_buf[0:required_len], width_buf[0:required_len]
 
-    def _read_spectrum(self, index: int) -> tuple[np.ndarray, np.ndarray]:
-        if self.is_centroid:
-            return self.read_centroid_spectrum(index)
-        return self.mz_x, self.read_profile_spectrum(index)
-
-    # Output intensities
+    # Output: intensities
     def read_profile_spectrum(self, index: int) -> np.ndarray:
         """Read profile spectrum."""
         # buffer-growing loop
         while True:
-            cnt = int(self.profile_buffer_size)  # necessary cast to run with python 3.5
+            cnt = int(self.buffer_size_profile)  # necessary cast to run with python 3.5
             intensity_buf = np.empty(shape=cnt, dtype=np.uint32)
 
             required_len = self.dll.tsf_read_profile_spectrum_v2(
-                self.handle, index + 1, intensity_buf.ctypes.data_as(POINTER(c_uint32)), self.profile_buffer_size
+                self.handle, index + 1, intensity_buf.ctypes.data_as(POINTER(c_uint32)), cnt
             )
 
             if required_len < 0:
                 _throw_last_error(self.dll)
 
-            if required_len > self.profile_buffer_size:
+            if required_len > cnt:
                 if required_len > 16777216:
                     # arbitrary limit for now...
                     raise RuntimeError("Maximum expected frame size exceeded.")
-                self.profile_buffer_size = required_len  # grow buffer
+                self.buffer_size_profile = required_len  # grow buffer
             else:
                 break
-
         return intensity_buf[0:required_len]
 
 
 def is_tsf(path: PathLike) -> bool:
     """Check if path is Bruker .d/tsf."""
-    from koyo.system import IS_MAC
-
     path = Path(path)
     return (
         path.suffix.lower() == ".d"
         and (path / "analysis.tsf").exists()
         and (path / "analysis.tsf_bin").exists()
         and not IS_MAC
+        and _is_timstof_instrument(path)
     )
+
+
+def _is_timstof_instrument(path: Path) -> bool:
+    """Check if the instrument is neofleX."""
+    conn = sqlite3.connect(path / "analysis.tsf", check_same_thread=False)
+    cursor = conn.execute("SELECT Key, Value FROM GlobalMetadata WHERE Key='InstrumentName'")
+    key, value = cursor.fetchone()
+    is_neo = key == "InstrumentName" and "neoflex" not in value.lower()
+    conn.close()
+    return is_neo
 
 
 @hook_impl
