@@ -3,15 +3,16 @@
 import typing as ty
 
 from koyo.system import IS_MAC
+from koyo.typing import PathLike
 from pluggy import PluginManager
 
 from imzy import hookspec
 from imzy._readers.imzml import _imzml
 
 if not IS_MAC:
-    from imzy._readers.bruker import _tdf, _tsf
+    from imzy._readers.bruker import _tdf, _tsf, _neoflex
 else:
-    _tdf = _tsf = None
+    _tdf = _tsf = _neoflex = None
 
 if ty.TYPE_CHECKING:
     from imzy._readers import BaseReader
@@ -28,10 +29,11 @@ class ImzyPluginManager(PluginManager):
         if not IS_MAC:
             self.register(_tdf)
             self.register(_tsf)
+            self.register(_neoflex)
         # add entry hooks
         self.load_setuptools_entrypoints("imzy.plugins")
 
-    def get_reader(self, path, **kwargs) -> "BaseReader":
+    def get_reader(self, path: PathLike, **kwargs: ty.Any) -> "BaseReader":
         """Get reader for specified path."""
         for reader in self.hook.imzy_reader(path=path, **kwargs):
             if reader is not None:

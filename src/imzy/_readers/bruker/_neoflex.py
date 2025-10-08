@@ -23,6 +23,7 @@ class NeoFlexReader(TSFReader):
         self.resolution = resolution
         self._mz_grid: np.ndarray | None = None
 
+    @property
     def mz_index(self) -> np.ndarray:
         """Get m/z index."""
         if self.is_centroid:
