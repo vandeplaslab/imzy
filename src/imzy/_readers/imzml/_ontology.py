@@ -1,5 +1,7 @@
 """Ontology utilities."""
 
+from __future__ import annotations
+
 import typing as ty
 from datetime import datetime
 from warnings import warn

@@ -1,6 +1,7 @@
 """Base reader."""
 
-import os
+from __future__ import annotations
+
 import typing as ty
 from contextlib import suppress
 from functools import lru_cache
@@ -20,8 +21,8 @@ class BaseReader:
     """Base reader class."""
 
     # private attributes
-    _xyz_coordinates: ty.Optional[np.ndarray] = None
-    _tic: ty.Optional[np.ndarray] = None
+    _xyz_coordinates: np.ndarray | None = None
+    _tic: np.ndarray | None = None
     _current = -1
 
     def __init__(self, path: PathLike):
@@ -57,7 +58,7 @@ class BaseReader:
     def _read_spectrum(self, index: int) -> tuple[np.ndarray, np.ndarray]:
         raise NotImplementedError("Must implement method")
 
-    def _read_spectra(self, indices: ty.Optional[np.ndarray] = None) -> ty.Iterator[tuple[np.ndarray, np.ndarray]]:
+    def _read_spectra(self, indices: np.ndarray | None = None) -> ty.Iterator[tuple[np.ndarray, np.ndarray]]:
         raise NotImplementedError("Must implement method")
 
     @property
@@ -89,7 +90,7 @@ class BaseReader:
         min_val, max_max = get_min_max(self.y_coordinates)
         return int(max_max - min_val + 1)
 
-    def __iter__(self) -> "BaseReader":
+    def __iter__(self) -> BaseReader:
         return self
 
     def __next__(self) -> tuple[np.ndarray, np.ndarray]:
@@ -208,8 +209,8 @@ class BaseReader:
     def get_ion_image(
         self,
         mz: float,
-        tol: ty.Optional[float] = None,
-        ppm: ty.Optional[float] = None,
+        tol: float | None = None,
+        ppm: float | None = None,
         fill_value: float = np.nan,
         silent: bool = False,
     ) -> np.ndarray:
@@ -235,8 +236,8 @@ class BaseReader:
     def _get_ions(
         self,
         mzs: ty.Iterable[float],
-        tol: ty.Optional[float] = None,
-        ppm: ty.Optional[float] = None,
+        tol: float | None = None,
+        ppm: float | None = None,
         fill_value: float = np.nan,
         silent: bool = False,
     ) -> np.ndarray:
@@ -257,8 +258,8 @@ class BaseReader:
     def _get_ions_yield(
         self,
         mzs: ty.Iterable[float],
-        tol: ty.Optional[float] = None,
-        ppm: ty.Optional[float] = None,
+        tol: float | None = None,
+        ppm: float | None = None,
         fill_value: float = np.nan,
         silent: bool = False,
     ) -> ty.Generator[np.ndarray, None, None]:
@@ -282,8 +283,8 @@ class BaseReader:
     def get_ion_images(
         self,
         mzs: ty.Iterable[float],
-        tol: ty.Optional[float] = None,
-        ppm: ty.Optional[float] = None,
+        tol: float | None = None,
+        ppm: float | None = None,
         fill_value: float = np.nan,
         silent: bool = False,
     ) -> np.ndarray:
@@ -294,8 +295,8 @@ class BaseReader:
     def to_table(
         self,
         mzs: ty.Iterable[float],
-        tol: ty.Optional[float] = None,
-        ppm: ty.Optional[float] = None,
+        tol: float | None = None,
+        ppm: float | None = None,
         fill_value: float = np.nan,
         silent: bool = False,
     ) -> np.ndarray:
@@ -306,10 +307,10 @@ class BaseReader:
         self,
         zarr_path: PathLike,
         mzs: ty.Iterable[float],
-        tol: ty.Optional[float] = None,
-        ppm: ty.Optional[float] = None,
+        tol: float | None = None,
+        ppm: float | None = None,
         as_flat: bool = True,
-        chunk_size: ty.Optional[tuple[int, int]] = None,
+        chunk_size: tuple[int, int] | None = None,
         silent: bool = False,
     ) -> Path:
         """Export many ion images for specified m/z values (+ tolerance) to Zarr array."""
@@ -374,8 +375,8 @@ class BaseReader:
         self,
         hdf_path: PathLike,
         mzs: ty.Iterable[float],
-        tol: ty.Optional[float] = None,
-        ppm: ty.Optional[float] = None,
+        tol: float | None = None,
+        ppm: float | None = None,
         as_flat: bool = True,
         max_mem: float = 512,  # mb
         silent: bool = False,
@@ -451,7 +452,7 @@ class BaseReader:
         return hdf_path
 
     def spectra_iter(
-        self, indices: ty.Optional[ty.Iterable[int]] = None, silent: bool = False
+        self, indices: ty.Iterable[int] | None = None, silent: bool = False
     ) -> ty.Generator[tuple[np.ndarray, np.ndarray], None, None]:
         """Yield spectra."""
         indices = self.pixels if indices is None else np.asarray(indices)
@@ -481,15 +482,15 @@ class BaseReader:
             tmp_filename.rename(filename)
         except OSError:
             with suppress(FileNotFoundError):
-                os.remove(filename)
+                filename.unlink()
             tmp_filename.rename(filename)
         except PermissionError:
             logger.warning("Could not write cache file.")
         finally:
             with suppress(FileNotFoundError):
-                os.remove(tmp_filename)
+                tmp_filename.unlink()
 
-    def _read_cache(self, filename: str, keys: list[str]) -> dict[str, ty.Optional[np.ndarray]]:
+    def _read_cache(self, filename: str, keys: list[str]) -> dict[str, np.ndarray | None]:
         """Load cache metadata.
 
         Parameters
@@ -502,7 +503,7 @@ class BaseReader:
         cache_file_path = Path(self.path) / ".icache" / (filename + ".npz")
 
         data = {}.fromkeys(keys)
-        if os.path.exists(cache_file_path):
+        if cache_file_path.exists():
             with np.load(cache_file_path, mmap_mode="r") as f_ptr:
                 for key in keys:
                     try:

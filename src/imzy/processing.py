@@ -1,6 +1,6 @@
 """Processing."""
 
-import typing as ty
+from __future__ import annotations
 
 import numba
 import numpy as np

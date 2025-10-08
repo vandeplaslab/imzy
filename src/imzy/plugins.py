@@ -1,5 +1,7 @@
 """Plugin manager."""
 
+from __future__ import annotations
+
 import typing as ty
 
 from koyo.system import IS_MAC, IS_WIN
@@ -42,7 +44,7 @@ class ImzyPluginManager(PluginManager):
         # add entry hooks
         self.load_setuptools_entrypoints("imzy.plugins")
 
-    def get_reader(self, path: PathLike, **kwargs: ty.Any) -> "BaseReader":
+    def get_reader(self, path: PathLike, **kwargs: ty.Any) -> BaseReader:
         """Get reader for the specified path."""
         for reader in self.hook.imzy_reader(path=path, **kwargs):
             if reader is not None:

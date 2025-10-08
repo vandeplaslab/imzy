@@ -1,5 +1,7 @@
 """Mixin class for HDF5 files."""
 
+from __future__ import annotations
+
 
 def check_hdf5() -> None:
     """Check whether Zarr, dask and rechunker are installed."""

@@ -1,5 +1,7 @@
 """Python wrapper for timsdata.dll for reading tsf."""
 
+from __future__ import annotations
+
 import sqlite3
 import typing as ty
 from ctypes import (
@@ -74,7 +76,7 @@ DLL.tsf_mz_to_index.argtypes = convfunc_argtypes
 DLL.tsf_mz_to_index.restype = c_uint32
 
 
-def _throw_last_error(dll_handle: ty.Optional[CDLL]) -> None:
+def _throw_last_error(dll_handle: CDLL | None) -> None:
     """Throw last TimsData error string as an exception."""
     if dll_handle:
         n = dll_handle.tsf_get_last_error_string(None, 0)
@@ -90,7 +92,7 @@ class TSFReader(BrukerBaseReader):
         self.use_recalibrated_state = use_recalibrated_state
         self.buffer_size_profile = 1024  # may grow in read...Spectrum()
         self.buffer_size_centroid = 1024  # may grow in read...Spectrum()
-        self._is_centroid: ty.Optional[bool] = None
+        self._is_centroid: bool | None = None
         super().__init__(path)
 
     def _init(self) -> None:
@@ -243,7 +245,7 @@ def _is_timstof_instrument(path: Path) -> bool:
 
 
 @hook_impl
-def imzy_reader(path: PathLike, **kwargs) -> ty.Optional[TSFReader]:
+def imzy_reader(path: PathLike, **kwargs) -> TSFReader | None:
     """Return TDFReader if path is Bruker .d/tdf."""
     if is_tsf(path):
         return TSFReader(path, **kwargs)

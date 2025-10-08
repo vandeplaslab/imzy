@@ -1,5 +1,7 @@
 """Python wrapper for timsdata.dll."""
 
+from __future__ import annotations
+
 import typing as ty
 from ctypes import (
     CDLL,
@@ -135,7 +137,7 @@ DLL.tims_ccs_to_oneoverk0_for_mz.argtypes = [c_double, c_int32, c_double]
 DLL.tims_ccs_to_oneoverk0_for_mz.restype = c_double
 
 
-def _throw_last_error(dll_handle: ty.Optional[CDLL]) -> None:
+def _throw_last_error(dll_handle: CDLL | None) -> None:
     """Throw last TimsData error string as an exception."""
     if dll_handle:
         n = dll_handle.tims_get_last_error_string(None, 0)
@@ -144,12 +146,12 @@ def _throw_last_error(dll_handle: ty.Optional[CDLL]) -> None:
         raise RuntimeError(buf.value)
 
 
-def ook0_to_ccs_for_mz(ook0: ty.Union[float, np.ndarray], charge: int, mz: float) -> ty.Union[float, np.ndarray]:
+def ook0_to_ccs_for_mz(ook0: float | np.ndarray, charge: int, mz: float) -> float | np.ndarray:
     """Convert 1/K0 to CCS for a given charge and mzn."""
     return DLL.tims_oneoverk0_to_ccs_for_mz(ook0, charge, mz)
 
 
-def ccs_to_ook0_for_mz(ccs: ty.Union[float, np.ndarray], charge: int, mz: float) -> ty.Union[float, np.ndarray]:
+def ccs_to_ook0_for_mz(ccs: float | np.ndarray, charge: int, mz: float) -> float | np.ndarray:
     """Convert CCS to 1/K0 for a given charge and mz."""
     return DLL.tims_ccs_to_oneoverk0_for_mz(ccs, charge, mz)
 
@@ -295,7 +297,7 @@ def is_tdf(path: PathLike) -> bool:
 
 
 @hook_impl
-def imzy_reader(path: PathLike, **kwargs) -> ty.Optional[TDFReader]:
+def imzy_reader(path: PathLike, **kwargs) -> TDFReader | None:
     """Return TDFReader if path is Bruker .d/tdf."""
     if is_tdf(path):
         return TDFReader(path, **kwargs)

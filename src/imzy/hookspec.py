@@ -1,5 +1,7 @@
 """Hooks for imzy."""
 
+from __future__ import annotations
+
 import typing as ty
 
 from koyo.typing import PathLike
@@ -13,7 +15,7 @@ hook_impl: ty.Callable = HookimplMarker("imzy")
 
 
 @hook_spec(firstresult=False)
-def imzy_reader(path: PathLike, **kwargs) -> ty.Optional["BaseReader"]:
+def imzy_reader(path: PathLike, **kwargs: ty.Any) -> BaseReader | None:
     """Hook specification for file reader.
 
     This function should return instance of initialized reader if the path is supported by the reader. You should

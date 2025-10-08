@@ -1,5 +1,7 @@
 """Base class for file readers."""
 
+from __future__ import annotations
+
 import sqlite3
 import typing as ty
 from contextlib import contextmanager
@@ -17,12 +19,12 @@ class BrukerBaseReader(BaseReader):
     """Base class for TSF/TDF file readers."""
 
     # class attributes
-    dll: ty.Optional[CDLL] = None
+    dll: CDLL | None = None
     handle = None
     sql_filename: str
-    _mz_x: ty.Optional[np.ndarray] = None
-    _rois: ty.Optional[list[int]] = None
-    _pixel_size: ty.Optional[float] = None
+    _mz_x: np.ndarray | None = None
+    _rois: list[int] | None = None
+    _pixel_size: float | None = None
 
     # DLL functions
     _dll_close_func: ty.Callable
@@ -100,13 +102,13 @@ class BrukerBaseReader(BaseReader):
     def _read_spectrum(self, index: int) -> tuple[np.ndarray, np.ndarray]:
         raise NotImplementedError("Must implement method")
 
-    def _read_spectra(self, indices: ty.Optional[np.ndarray] = None) -> ty.Iterator[tuple[np.ndarray, np.ndarray]]:
+    def _read_spectra(self, indices: np.ndarray | None = None) -> ty.Iterator[tuple[np.ndarray, np.ndarray]]:
         if indices is None:
             indices = self.pixels
         for index in indices:
             yield self._read_spectrum(index)
 
-    def __enter__(self) -> "BrukerBaseReader":
+    def __enter__(self) -> BrukerBaseReader:
         return self
 
     def __exit__(self, type, value, traceback) -> None:  # type: ignore
@@ -201,7 +203,7 @@ class BrukerBaseReader(BaseReader):
         return mz_min, mz_max
 
     # noinspection PyAttributeOutsideInit
-    def set_region_information(self, roi: ty.Optional[int] = None) -> None:
+    def set_region_information(self, roi: int | None = None) -> None:
         """Collect file information."""
         data = self._read_cache("frame_index_cache", ["frame_index_position"])
         # load data from cache
