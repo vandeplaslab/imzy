@@ -6,7 +6,7 @@ from importlib import metadata as importlib_metadata
 from loguru import logger
 
 from imzy._centroids import H5CentroidsStore, InMemoryStore, ZarrCentroidsStore
-from imzy._readers import BaseReader, IMZMLReader, TDFReader, TSFReader, get_reader
+from imzy._readers import BaseReader, IMZMLReader, TDFReader, TSFReader, WatersReader, get_reader
 
 # disable loguru logger
 logger.disable("imzy")
@@ -38,11 +38,11 @@ def discover_plugins():
 __version__: str = get_version()
 __all__ = (
     "BaseReader",
+    "H5CentroidsStore",
     "IMZMLReader",
+    "InMemoryStore",
     "TDFReader",
     "TSFReader",
-    "get_reader",
-    "H5CentroidsStore",
     "ZarrCentroidsStore",
-    "InMemoryStore",
+    "get_reader",
 )

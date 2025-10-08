@@ -3,7 +3,7 @@
 import typing as ty
 from pathlib import Path
 
-from koyo.system import IS_MAC
+from koyo.system import IS_MAC, IS_WIN
 from koyo.typing import PathLike
 
 from imzy._readers._base import BaseReader
@@ -14,12 +14,17 @@ if not IS_MAC:
 else:
     TDFReader = TSFReader = NeoFlexReader = is_tdf = is_tsf = is_neoflex = None  # type: ignore[misc,assignment]
 
+if IS_WIN:
+    from imzy._readers.waters import WatersReader, is_waters
+else:
+    WatersReader = is_waters = None  # type: ignore[misc,assignment]
 
-__all__ = ("BaseReader", "IMZMLReader", "NeoFlexReader", "TDFReader", "TSFReader", "get_reader")
+
+__all__ = ("BaseReader", "IMZMLReader", "NeoFlexReader", "TDFReader", "TSFReader", "WatersReader", "get_reader")
 
 
 def get_reader(path: PathLike, **kwargs: ty.Any) -> BaseReader:
-    """Get reader based on its file extension.
+    """Get a file reader based on its extension and file contents.
 
     Parameters
     ----------

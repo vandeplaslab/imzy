@@ -224,6 +224,7 @@ def is_tsf(path: PathLike) -> bool:
     path = Path(path)
     return (
         path.suffix.lower() == ".d"
+        and path.is_dir()
         and (path / "analysis.tsf").exists()
         and (path / "analysis.tsf_bin").exists()
         and not IS_MAC

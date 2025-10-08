@@ -1,5 +1,7 @@
 """imzML reader."""
 
+from __future__ import annotations
+
 import typing as ty
 from contextlib import suppress
 from pathlib import Path
@@ -39,7 +41,7 @@ class IMZMLCache:
         }
 
     @classmethod
-    def from_cache(cls, path: Path) -> "IMZMLCache":
+    def from_cache(cls, path: Path) -> IMZMLCache:
         """Read data from cache."""
         data = {}
         with np.load(path) as f_ptr:
@@ -54,17 +56,17 @@ class IMZMLCache:
 class IMZMLReader(BaseReader):
     """ImzML file reader."""
 
-    _ibd_path: ty.Optional[Path] = None
-    _icache_path: ty.Optional[Path] = None
-    _is_centroid: ty.Optional[bool] = None
+    _ibd_path: Path | None = None
+    _icache_path: Path | None = None
+    _is_centroid: bool | None = None
 
     def __init__(
         self,
         path: PathLike,
-        ibd_path: ty.Optional[PathLike] = None,
+        ibd_path: PathLike | None = None,
         mz_ppm: float = 1.0,
-        mz_min: ty.Optional[float] = None,
-        mz_max: ty.Optional[float] = None,
+        mz_min: float | None = None,
+        mz_max: float | None = None,
     ):
         super().__init__(path)
         self._init(ibd_path)
@@ -82,7 +84,7 @@ class IMZMLReader(BaseReader):
             raise ValueError("ibd path is not set.")
         return self._ibd_path
 
-    def _init(self, ibd_path: ty.Optional[PathLike] = None) -> None:
+    def _init(self, ibd_path: PathLike | None = None) -> None:
         """Initialize metadata."""
         _, self._ibd_path, self._icache_path = infer_path(self.path, ibd_path)
         if self._icache_path and self._icache_path.exists():
@@ -125,7 +127,7 @@ class IMZMLReader(BaseReader):
 
     @property
     def rois(self) -> list[int]:
-        """Return list of ROI indices."""
+        """Return a list of ROI indices."""
         return [0]  # imzML files always have single ROI
 
     @property
@@ -183,8 +185,7 @@ class IMZMLReader(BaseReader):
 
     def flatten(self, image: np.ndarray) -> np.ndarray:
         """Retrieve original vector of intensities from an image."""
-        array = image[self.y_coordinates - 1, self.x_coordinates - 1]
-        return array
+        return image[self.y_coordinates - 1, self.x_coordinates - 1]
 
     def get_summed_spectrum(self, indices: ty.Iterable[int], silent: bool = False) -> tuple[np.ndarray, np.ndarray]:
         """Sum pixel data to produce summed mass spectrum."""
@@ -212,7 +213,7 @@ class IMZMLReader(BaseReader):
     def _get_summed_spectrum_centroid(
         self, indices: ty.Iterable[int], silent: bool = False
     ) -> tuple[np.ndarray, np.ndarray]:
-        # creating summed spectrum from centroided data is a lot harder because there is no consensus axis in which case
+        # Creating summed spectrum from centroided data is a lot harder because there is no consensus axis in which case
         # we must create our own.
         # We have decided to create resampled spectrum with pre-defined ppm limit. This is not ideal but its better than
         # not doing it at all.
@@ -264,9 +265,7 @@ class IMZMLReader(BaseReader):
             int_bytes = f_ptr.read(int_l * self._int_size)
         return np.frombuffer(mz_bytes, dtype=self.mz_precision), np.frombuffer(int_bytes, dtype=self.int_precision)
 
-    def _read_spectra(
-        self, indices: ty.Optional[ty.Iterable[int]] = None
-    ) -> ty.Iterator[tuple[np.ndarray, np.ndarray]]:
+    def _read_spectra(self, indices: ty.Iterable[int] | None = None) -> ty.Iterator[tuple[np.ndarray, np.ndarray]]:
         """Read spectra without constantly opening and closing the file handle."""
         if indices is None:
             indices = self.pixels
@@ -283,7 +282,7 @@ class IMZMLReader(BaseReader):
                 )
 
 
-def infer_path(path: Path, ibd_path: ty.Optional[PathLike] = None) -> tuple[Path, Path, ty.Optional[Path]]:
+def infer_path(path: Path, ibd_path: PathLike | None = None) -> tuple[Path, Path, Path | None]:
     """Infer imzml/ibd path."""
     import re
 
@@ -374,7 +373,7 @@ def read_imzml_metadata(root, sl: str = "{http://psi.hupo.org/ms/mzml}"):
     return metadata_dict
 
 
-def init_metadata(path: Path, parse_lib: ty.Optional[str] = None, sl: str = "{http://psi.hupo.org/ms/mzml}"):
+def init_metadata(path: Path, parse_lib: str | None = None, sl: str = "{http://psi.hupo.org/ms/mzml}"):
     """Method to initialize formats, coordinates and offsets from the imzML file format.
 
     This method should only be called by __init__. Reads the data formats, coordinates and offsets from
@@ -504,7 +503,7 @@ class CoordinateIndices:
     Z = 2
 
 
-def choose_iterparse(parse_lib: ty.Optional[str] = None) -> ty.Callable:
+def choose_iterparse(parse_lib: str | None = None) -> ty.Callable:
     """Choose iterparse."""
     if parse_lib == "ElementTree":
         from xml.etree.ElementTree import iterparse
@@ -554,7 +553,7 @@ def is_imzml(path: PathLike) -> bool:
 
 
 @hook_impl
-def imzy_reader(path: PathLike, **kwargs) -> ty.Optional[IMZMLReader]:
+def imzy_reader(path: PathLike, **kwargs) -> IMZMLReader | None:
     """Return TDFReader if path is Bruker .d/tdf."""
     if is_imzml(path):
         return IMZMLReader(path, **kwargs)

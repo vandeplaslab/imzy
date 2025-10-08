@@ -287,6 +287,7 @@ def is_tdf(path: PathLike) -> bool:
     path = Path(path)
     return (
         path.suffix.lower() == ".d"
+        and path.is_dir()
         and (path / "analysis.tdf").exists()
         and (path / "analysis.tdf_bin").exists()
         and not IS_MAC

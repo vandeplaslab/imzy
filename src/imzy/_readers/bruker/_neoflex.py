@@ -1,7 +1,8 @@
 """NeoFlex reader for Bruker files."""
 
+from __future__ import annotations
+
 import sqlite3
-import typing as ty
 from pathlib import Path
 
 import numpy as np
@@ -21,7 +22,6 @@ class NeoFlexReader(TSFReader):
         super().__init__(path, use_recalibrated_state)
         self.auto_profile = auto_profile
         self.resolution = resolution
-        self._mz_grid: np.ndarray | None = None
 
     @property
     def mz_index(self) -> np.ndarray:
@@ -34,7 +34,7 @@ class NeoFlexReader(TSFReader):
         bruker_mz_max = self.read_profile_spectrum(1).shape[0]
         return np.arange(0, bruker_mz_max)
 
-    def _read_spectrum(self, frame_id: int, scan_begin: int = 0, scan_end: int = -1) -> tuple[np.ndarray, np.ndarray]:
+    def _read_spectrum(self, frame_id: int) -> tuple[np.ndarray, np.ndarray]:
         """Read scan data."""
         if self.is_centroid:
             x, y = self.read_centroid_spectrum(frame_id)
@@ -52,6 +52,7 @@ def is_neoflex(path: PathLike) -> bool:
     path = Path(path)
     return (
         path.suffix.lower() == ".d"
+        and path.is_dir()
         and (path / "analysis.tsf").exists()
         and (path / "analysis.tsf_bin").exists()
         and not IS_MAC
@@ -70,7 +71,7 @@ def _is_neoflex_instrument(path: Path) -> bool:
 
 
 @hook_impl
-def imzy_reader(path: PathLike, **kwargs) -> ty.Optional[NeoFlexReader]:
+def imzy_reader(path: PathLike, **kwargs) -> NeoFlexReader | None:
     """Return TDFReader if path is Bruker .d/tdf."""
     if is_neoflex(path):
         return NeoFlexReader(path, **kwargs)

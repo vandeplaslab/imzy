@@ -27,7 +27,7 @@ class BaseReader:
     def __init__(self, path: PathLike):
         self.path = Path(path)
 
-    def _init(self, *args, **kwargs) -> None:
+    def _init(self, *args: ty.Any, **kwargs: ty.Any) -> None:
         """Method which is called to initialize the reader."""
         raise NotImplementedError("Must implement method")
 
@@ -46,7 +46,7 @@ class BaseReader:
         """Flag to indicate whether the data is in centroid or profile mode."""
         raise NotImplementedError("Must implement method")
 
-    def get_spectrum(self, index: int):
+    def get_spectrum(self, index: int) -> tuple[np.ndarray, np.ndarray]:
         """Return mass spectrum."""
         return self._read_spectrum(index)
 
@@ -214,7 +214,7 @@ class BaseReader:
         silent: bool = False,
     ) -> np.ndarray:
         """Return ion image for specified m/z with tolerance or ppm."""
-        if tol is None and ppm is None or tol == 0 and ppm == 0:
+        if (tol is None and ppm is None) or (tol == 0 and ppm == 0):
             raise ValueError("Please specify `tol` or `ppm`.")
         elif tol is not None and ppm is not None:
             raise ValueError("Please only specify `tol` or `ppm`.")
@@ -322,7 +322,7 @@ class BaseReader:
 
         if not as_flat:
             raise ValueError("Only flat images are supported at the moment.")
-        if tol is None and ppm is None or tol == 0 and ppm == 0:
+        if (tol is None and ppm is None) or (tol == 0 and ppm == 0):
             raise ValueError("Please specify `tol` or `ppm`.")
 
         check_zarr()

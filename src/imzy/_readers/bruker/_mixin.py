@@ -33,8 +33,8 @@ class BrukerBaseReader(BaseReader):
         super().__init__(path)
         self._init()
 
-    def _init(self) -> None:
-        """Extra initialization."""
+    def _init(self, *args: ty.Any, **kwargs: ty.Any) -> None:
+        """Method which is called to initialize the reader."""
         assert (self.path / self.sql_filename).exists(), f"Could not find {self.sql_filename} file."
         self._mz_min, self._mz_max = self.get_acquisition_mass_range()
         self.set_region_information()
