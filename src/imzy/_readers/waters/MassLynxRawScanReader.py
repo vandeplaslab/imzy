@@ -1,11 +1,12 @@
 """Waters
 MassLynx Python SDK.
 """
+
 from ctypes import POINTER, c_byte, c_float, c_int, c_void_p, cast
 
 import numpy as np
 
-from imspy_data.convert.waters.MassLynxRawReader import MassLynxBaseType, MassLynxRawProcessor, MassLynxRawReader
+from imzy._readers.waters.MassLynxRawReader import MassLynxBaseType, MassLynxRawProcessor, MassLynxRawReader
 
 
 class MassLynxRawScanReader(MassLynxRawReader):

@@ -20,7 +20,8 @@ except ImportError:
     class hdf5plugin:
         """Dummy class."""
 
-        LZ4 = lambda *args, **kwargs: {}
+        def LZ4(*args, **kwargs):
+            return {}
 
 
 def check_zarr() -> None:

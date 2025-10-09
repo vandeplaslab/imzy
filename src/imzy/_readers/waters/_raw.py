@@ -6,7 +6,6 @@ import typing as ty
 from pathlib import Path
 
 import numpy as np
-from ims_utils.profile import centroid_to_profile
 from ims_utils.spectrum import get_ppm_axis
 from koyo.system import IS_WIN
 from koyo.typing import PathLike
@@ -226,7 +225,7 @@ class WatersReader(BaseReader):
             fcn, scan = self.frame_to_fcn[index]
             x, y = self._read_scan_buffer_mz(fcn, scan)
             if self.auto_profile:
-                x, y, _ = centroid_to_profile(x, y, resolving_power=self.resolution, mz_grid=self.mz_x)
+                x, y, _ = self._centroid_to_profile(x, y, resolution=self.resolution, mz_grid=self.mz_x)
             return x, y
         else:
             fcn, scan = self.frame_to_fcn[index]
@@ -236,8 +235,8 @@ class WatersReader(BaseReader):
                 y_profile = np.zeros((self.mz_x.size, len(y)), dtype=np.float32)
                 for drift_id, (x_, y_) in enumerate(y):
                     if np.any(y_ > 0):
-                        _, y_profile_, _ = centroid_to_profile(
-                            x_, y_, resolving_power=self.resolution, mz_grid=self.mz_x
+                        _, y_profile_, _ = self._centroid_to_profile(
+                            x_, y_, resolution=self.resolution, mz_grid=self.mz_x
                         )
                         y_profile[:, drift_id] = y_profile_
                 y = y_profile
@@ -276,7 +275,7 @@ def is_waters(path: PathLike) -> bool:
         path.suffix.lower() == ".raw"
         and path.is_dir()
         and (path / "_extern.inf").exists()
-        and (path / "_header.inf").exists()
+        and (path / "_header.txt").exists()
         and IS_WIN
     )
 

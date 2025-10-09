@@ -1,7 +1,8 @@
 """Waters MassLynx Python Chromatogram reader SDK."""
+
 from ctypes import POINTER, c_bool, c_float, c_int, c_void_p, cast
 
-from imspy_data.convert.waters.MassLynxRawReader import MassLynxBaseType, MassLynxRawReader
+from imzy._readers.waters.MassLynxRawReader import MassLynxBaseType, MassLynxRawReader
 
 
 class MassLynxRawChromatogramReader(MassLynxRawReader):

@@ -89,14 +89,19 @@ class BrukerBaseReader(BaseReader):
         except RuntimeError:
             return True
 
-    def get_summed_spectrum(self, indices: ty.Iterable[int], silent: bool = False) -> tuple[np.ndarray, np.ndarray]:
+    def get_summed_spectrum(
+        self, indices: ty.Iterable[int], scales: np.ndarray | None = None, silent: bool = False
+    ) -> tuple[np.ndarray, np.ndarray]:
         """Sum pixel data to produce summed mass spectrum."""
         indices = np.asarray(indices)
         if np.any(indices >= self.n_pixels):
             raise ValueError("You cannot specify indices that are greater than the total number of pixels.")
+        if scales is None:
+            scales = np.ones(len(indices), dtype=np.float32)
+
         mz_y = np.zeros_like(self.mz_x, dtype=np.float64)
         for index in tqdm(indices, disable=silent, total=len(indices), desc="Summing spectra..."):
-            mz_y += self._read_spectrum(index)[1]
+            mz_y += self._read_spectrum(index)[1] * scales[index]
         return self.mz_x, mz_y
 
     def _read_spectrum(self, index: int) -> tuple[np.ndarray, np.ndarray]:
@@ -232,9 +237,9 @@ class BrukerBaseReader(BaseReader):
         # self.x_coordinates_all = frame_index_position[:, 1]
         # self.y_coordinates_all = frame_index_position[:, 2]
         x_coordinates = frame_index_position[self.region_frames, 1]
-        x_min, x_max = get_min_max(x_coordinates)
+        x_min, _x_max = get_min_max(x_coordinates)
         y_coordinates = frame_index_position[self.region_frames, 2]
-        y_min, y_max = get_min_max(y_coordinates)
+        y_min, _y_max = get_min_max(y_coordinates)
         x_coordinates = x_coordinates - x_min
         y_coordinates = y_coordinates - y_min
         self._xyz_coordinates = np.column_stack((x_coordinates, y_coordinates, np.zeros_like(x_coordinates)))

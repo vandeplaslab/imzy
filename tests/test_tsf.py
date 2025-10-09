@@ -13,7 +13,7 @@ from .utilities import get_tsf_data
 @pytest.mark.parametrize("path", get_tsf_data())
 def test_init(path):
     reader: TSFReader = get_reader(path)
-    assert type(reader) == TSFReader
+    assert isinstance(reader, TSFReader)
     assert reader.n_pixels > 0
     assert reader.xyz_coordinates.shape[0] == reader.n_pixels
     assert reader.xyz_coordinates.shape[1] == 3  # x, y and z

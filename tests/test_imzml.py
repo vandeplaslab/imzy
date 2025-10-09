@@ -10,7 +10,7 @@ from .utilities import get_imzml_data
 @pytest.mark.parametrize("path", get_imzml_data())
 def test_init(path):
     reader = get_reader(path)
-    assert type(reader) == IMZMLReader
+    assert isinstance(reader, IMZMLReader)
     assert reader.n_pixels > 0
     assert reader.xyz_coordinates.shape[0] == reader.n_pixels
     assert reader.xyz_coordinates.shape[1] == 3  # x, y and z

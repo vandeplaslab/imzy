@@ -1,12 +1,25 @@
 """Waters
 MassLynx Python SDK.
 """
+
 import ctypes
 import os
 from ctypes import POINTER, c_char_p, c_int, c_void_p
 from enum import IntEnum
 
 from koyo.utilities import get_module_path
+
+
+def get_waters_dll() -> ctypes.WinDLL:
+    cwd = os.getcwd()
+    waters_path = os.path.dirname(get_module_path("imzy._readers.waters", "MassLynxRawReader.py"))
+    os.chdir(waters_path)
+    dll_path = os.path.join(waters_path, "MassLynxRaw.dll")
+    if not os.path.exists(dll_path):
+        raise ValueError("Could not find MassLynxRaw.dll")
+    massLynxDll = ctypes.WinDLL(dll_path)  # "MassLynxRaw.dll")
+    os.chdir(cwd)
+    return massLynxDll
 
 
 class MassLynxBaseType(IntEnum):
@@ -217,16 +230,6 @@ class MassLynxCodeHandler:
 class MassLynxRawReader:
     """basic functionality to read raw files."""
 
-    # load the dll
-    cwd = os.getcwd()
-
-    waters_path = os.path.dirname(get_module_path("imspy_data.convert.waters", "MassLynxRawReader.py"))
-    os.chdir(waters_path)
-    dll_path = os.path.join(waters_path, "MassLynxRaw.dll")
-    if not os.path.exists(dll_path):
-        raise ValueError("Could not find MassLynxRaw.dll")
-    massLynxDll = ctypes.WinDLL(dll_path)  # "MassLynxRaw.dll")
-    os.chdir(cwd)
     version = "1.0"  # class variable
 
     def __init__(self, source, mlType):
@@ -313,16 +316,7 @@ class MassLynxProcessCodeHandler:
 class MassLynxRawProcessor:
     """basic functionality to Process raw files."""
 
-    # load the dll
-    cwd = os.getcwd()
-
-    waters_path = os.path.dirname(get_module_path("imspy_data.convert.waters", "MassLynxRawReader.py"))
-    os.chdir(waters_path)
-    dll_path = os.path.join(waters_path, "MassLynxRaw.dll")
-    if not os.path.exists(dll_path):
-        raise ValueError("Could not find MassLynxRaw.dll")
-    massLynxDll = ctypes.WinDLL(dll_path)  # "MassLynxRaw.dll")
-    os.chdir(cwd)
+    massLynxDll = get_waters_dll()
 
     def __init__(self, rr):
         self.mlRawProcessor = c_void_p()  # instance variable

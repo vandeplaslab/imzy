@@ -69,7 +69,7 @@ def convert_term_name(accession: str) -> str:
 
 def convert_cv_param(accession: str, value: ty.Any) -> ty.Any:
     """Looks up a term by accession number, and convert the provided value to the expected type."""
-    name, dtype = all_terms.get(accession, (accession, None))
+    _name, dtype = all_terms.get(accession, (accession, None))
     converted_value = convert_xml_value(dtype, value)
     return converted_value
 

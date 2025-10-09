@@ -6,7 +6,6 @@ import sqlite3
 from pathlib import Path
 
 import numpy as np
-from ims_utils.profile import centroid_to_profile
 from koyo.typing import PathLike
 
 from imzy._readers.bruker._tsf import TSFReader
@@ -39,7 +38,7 @@ class NeoFlexReader(TSFReader):
         if self.is_centroid:
             x, y = self.read_centroid_spectrum(frame_id)
             if self.auto_profile:
-                mzs, intensities, _ = centroid_to_profile(x, y, resolving_power=self.resolution, mz_grid=self.mz_x)
+                mzs, intensities, _ = self._centroid_to_profile(x, y, resolution=self.resolution, mz_grid=self.mz_x)
                 return mzs, intensities
             return x, y
         return self.mz_x, self.read_profile_spectrum(frame_id)

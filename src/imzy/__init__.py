@@ -6,7 +6,7 @@ from importlib import metadata as importlib_metadata
 from loguru import logger
 
 from imzy._centroids import H5CentroidsStore, InMemoryStore, ZarrCentroidsStore
-from imzy._readers import BaseReader, IMZMLReader, TDFReader, TSFReader, WatersReader, get_reader
+from imzy._readers import BaseReader, IMZMLReader, NeoFlexReader, TDFReader, TSFReader, WatersReader, get_reader
 
 # disable loguru logger
 logger.disable("imzy")
@@ -41,8 +41,10 @@ __all__ = (
     "H5CentroidsStore",
     "IMZMLReader",
     "InMemoryStore",
+    "NeoFlexReader",
     "TDFReader",
     "TSFReader",
+    "WatersReader",
     "ZarrCentroidsStore",
     "get_reader",
 )

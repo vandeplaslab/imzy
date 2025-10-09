@@ -2,10 +2,11 @@
 Waters
 MassLynx Python SDK.
 """
+
 import ctypes
 from ctypes import POINTER, c_bool, c_char, c_char_p, c_float, c_int, c_void_p, cast
 
-from imspy_data.convert.waters.MassLynxRawReader import MassLynxBaseType, MassLynxRawReader
+from imzy._readers.waters.MassLynxRawReader import MassLynxBaseType, MassLynxRawReader
 
 # from enum import IntEnum
 

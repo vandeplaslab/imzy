@@ -12,7 +12,7 @@ from .utilities import get_tdf_data
 @pytest.mark.parametrize("path", get_tdf_data())
 def test_init(path):
     reader: TDFReader = get_reader(path)
-    assert type(reader) == TDFReader
+    assert isinstance(reader, TDFReader)
     assert reader.n_pixels > 0
     assert reader.xyz_coordinates.shape[0] == reader.n_pixels
     assert reader.xyz_coordinates.shape[1] == 3  # x, y and z

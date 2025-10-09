@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import typing as ty
-from contextlib import suppress
 from pathlib import Path
 from warnings import warn
 
 import numpy as np
+from ims_utils.spectrum import get_ppm_axis
 from koyo.typing import PathLike
 from tqdm import tqdm
 
@@ -153,6 +153,14 @@ class IMZMLReader(BaseReader):
         """Return y pixel size in micrometers."""
         return self.metadata.PX_SIZE_Y
 
+    @property
+    def mz_x(self) -> np.ndarray:
+        """Return m/z axis."""
+        if self.is_centroid:
+            mz_min, mz_max = self._estimate_mass_range()
+            return get_ppm_axis(mz_min, mz_max, self.mz_ppm)
+        return self.get_spectrum(0)[0]
+
     def get_physical_coordinates(self, index: int) -> tuple[float, float]:
         """For a pixel index i, return real-world coordinates in micrometers.
 
@@ -187,49 +195,53 @@ class IMZMLReader(BaseReader):
         """Retrieve original vector of intensities from an image."""
         return image[self.y_coordinates - 1, self.x_coordinates - 1]
 
-    def get_summed_spectrum(self, indices: ty.Iterable[int], silent: bool = False) -> tuple[np.ndarray, np.ndarray]:
+    def get_summed_spectrum(
+        self, indices: ty.Iterable[int], scales: np.ndarray | None = None, silent: bool = False
+    ) -> tuple[np.ndarray, np.ndarray]:
         """Sum pixel data to produce summed mass spectrum."""
         indices = np.asarray(indices)
         if np.any(indices >= self.n_pixels):
             raise ValueError("You cannot specify indices that are greater than the total number of pixels.")
+        if scales is None:
+            scales = np.ones(self.n_pixels, dtype=np.float32)
         if self.is_centroid:
-            return self._get_summed_spectrum_centroid(indices)
-        return self._get_summed_spectrum_profile(indices)
+            return self._get_summed_spectrum_centroid(indices, scales=scales, silent=silent)
+        return self._get_summed_spectrum_profile(indices, scales=scales, silent=silent)
 
     def _get_summed_spectrum_profile(
-        self, indices: ty.Iterable[int], silent: bool = False
+        self, indices: ty.Iterable[int], scales: np.ndarray | None = None, silent: bool = False
     ) -> tuple[np.ndarray, np.ndarray]:
         indices = np.asarray(indices)
         if indices.size == 0:
             raise ValueError("You must specify at least one index.")
         mz_x, mz_y = self[indices[0]]
-        mz_y = mz_y.copy().astype(np.float64)
-        for _, y in tqdm(
-            self._read_spectra(indices[1::]), total=len(indices) - 1, disable=silent, desc="Summing spectra..."
+        mz_y = mz_y.copy().astype(np.float64) * scales[indices[0]]
+        for index, (_, y) in enumerate(
+            tqdm(self._read_spectra(indices[1::]), total=len(indices) - 1, disable=silent, desc="Summing spectra..."),
+            start=1,
         ):
-            mz_y += y
+            mz_y += y * scales[indices[index]]
         return mz_x, mz_y
 
     def _get_summed_spectrum_centroid(
-        self, indices: ty.Iterable[int], silent: bool = False
+        self, indices: ty.Iterable[int], scales: np.ndarray | None = None, silent: bool = False
     ) -> tuple[np.ndarray, np.ndarray]:
         # Creating summed spectrum from centroided data is a lot harder because there is no consensus axis in which case
         # we must create our own.
         # We have decided to create resampled spectrum with pre-defined ppm limit. This is not ideal but its better than
         # not doing it at all.
-        from ims_utils.spectrum import get_ppm_axis, set_ppm_axis, trim_axis
 
         indices = np.asarray(indices)
         if indices.size == 0:
             raise ValueError("You must specify at least one index.")
 
-        mz_min, mz_max = self._estimate_mass_range()
-        mz_x = get_ppm_axis(mz_min, mz_max, self.mz_ppm)
+        mz_x = self.mz_x
         mz_y = np.zeros_like(mz_x, dtype=np.float64)
-        for x, y in tqdm(self._read_spectra(indices), total=len(indices), disable=silent, desc="Summing spectra..."):
-            x, y = trim_axis(x, y, self._mz_min, self._mz_max)
-            with suppress(IndexError):
-                mz_y = set_ppm_axis(mz_x, mz_y, x, y)
+        for index, (_x, y) in enumerate(
+            tqdm(self._read_spectra(indices), total=len(indices), disable=silent, desc="Summing spectra...")
+        ):
+            y = y * scales[indices[index]]
+            mz_y += y
         return mz_x, mz_y
 
     def _estimate_mass_range(self) -> tuple[float, float]:

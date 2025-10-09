@@ -2,9 +2,10 @@
 Waters
 MassLynx Python SDK.
 """
+
 from ctypes import POINTER, c_bool, c_char_p, c_float, c_int, c_void_p
 
-from imspy_data.convert.waters.MassLynxRawReader import MassLynxBaseType, MassLynxCodeHandler, MassLynxRawReader
+from imzy._readers.waters.MassLynxRawReader import MassLynxBaseType, MassLynxCodeHandler, MassLynxRawReader
 
 
 class MasslynxLockMassProcessor:

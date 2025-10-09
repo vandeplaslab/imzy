@@ -8,6 +8,7 @@ from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
+from ims_utils.profile import centroid_to_profile
 from ims_utils.spectrum import find_between_batch, find_between_ppm, find_between_tol, get_mzs_for_tol
 from koyo.typing import PathLike
 from koyo.utilities import get_min_max
@@ -51,7 +52,9 @@ class BaseReader:
         """Return mass spectrum."""
         return self._read_spectrum(index)
 
-    def get_summed_spectrum(self, indices: ty.Iterable[int], silent: bool = False) -> tuple[np.ndarray, np.ndarray]:
+    def get_summed_spectrum(
+        self, indices: ty.Iterable[int], scales: np.ndarray | None = None, silent: bool = False
+    ) -> tuple[np.ndarray, np.ndarray]:
         """Sum pixel data to produce summed mass spectrum."""
         raise NotImplementedError("Must implement method")
 
@@ -105,6 +108,12 @@ class BaseReader:
     def __getitem__(self, item: int) -> tuple[np.ndarray, np.ndarray]:
         """Retrieve spectrum."""
         return self.get_spectrum(item)
+
+    def _centroid_to_profile(
+        self, x: np.ndarray, y: np.ndarray, resolution: int, mz_grid: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Convert centroid to profile spectrum."""
+        return centroid_to_profile(x, y, resolving_power=resolution, mz_grid=mz_grid)
 
     def reshape(self, array: np.ndarray, fill_value: float = 0) -> np.ndarray:
         """Reshape vector of intensities."""
@@ -436,6 +445,17 @@ class BaseReader:
         return hdf_path
 
     extract_centroids_hdf5 = to_hdf5
+
+    def get_normalizations(self, silent: bool = False) -> dict[str, np.ndarray]:
+        """Get available normalizations."""
+        from imzy._normalizations._extract import _compute_normalizations, get_normalizations
+
+        norm_names = get_normalizations()
+        norms = _compute_normalizations(self, clean=False, silent=silent)
+        data = {}
+        for i, norm in enumerate(norm_names):
+            data[norm] = norms[:, i]
+        return data
 
     def extract_normalizations_hdf5(self, hdf_path: PathLike, silent: bool = False):
         """Extract normalizations."""

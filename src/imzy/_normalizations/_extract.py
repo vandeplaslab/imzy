@@ -12,7 +12,8 @@ except ImportError:
     class hdf5plugin:
         """Dummy class."""
 
-        LZ4 = lambda *args, **kwargs: {}
+        def LZ4(*args, **kwargs):
+            return {}
 
 
 import numpy as np
@@ -90,7 +91,11 @@ def compute_normalizations(input_dir: Path, clean: bool = True, silent: bool = F
     from imzy._readers import get_reader
 
     reader = get_reader(input_dir)
+    return _compute_normalizations(reader, clean=clean, silent=silent)
 
+
+def _compute_normalizations(reader, clean: bool = True, silent: bool = False) -> np.ndarray:
+    """Calculate normalizations for a set of frames."""
     # specify normalization names
     names = get_normalizations()
 
