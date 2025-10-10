@@ -14,7 +14,7 @@
 [![Semantic Versions](https://img.shields.io/badge/%20%20%F0%9F%93%A6%F0%9F%9A%80-semantic--versions-e10079.svg)](https://github.com/imzy/imzy/releases)
 [![License](https://img.shields.io/github/license/imzy/imzy)](https://github.com/imzy/imzy/blob/main/LICENSE)
 
-imzy: A simple reader interface to imzML, Bruker (.tdf/.tsf) file formats
+imzy: A simple reader interface to imzML, Bruker (.tdf/.tsf) and Waters (.raw) file formats
 
 </div>
 
@@ -90,11 +90,9 @@ Your reader will be automatically detected when the `ImzyPluginManager` is initi
 
 
 ## Planned features
-- add functionality to readers
 - improve performance
 - improve tests
 - add better caching support
-- add support for Waters (.raw) files
 - add support for Thermo (.raw) files
 
 ## Contributing
