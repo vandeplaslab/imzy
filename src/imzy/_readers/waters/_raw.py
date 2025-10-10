@@ -6,6 +6,7 @@ import typing as ty
 from pathlib import Path
 
 import numpy as np
+from tqdm import tqdm
 from ims_utils.spectrum import get_ppm_axis
 from koyo.system import IS_WIN
 from koyo.typing import PathLike
@@ -36,6 +37,7 @@ class WatersReader(BaseReader):
     mz_offset: float = 5
     _mz_min: float
     _mz_max: float
+    _mz_ppm: float | None = None
     _mz_grid: np.ndarray | None = None
 
     # Reader objects
@@ -49,8 +51,8 @@ class WatersReader(BaseReader):
     ) -> None:
         super().__init__(path)
         self.auto_profile = auto_profile
-        self.mz_ppm = mz_ppm
-        self.resolution = resolution
+        self.resolution = _auto_guess_resolution(resolution)
+        self.mz_ppm = _auto_guess_ppm(self.resolution, mz_ppm)
         self._init()
 
     def _init(self, *args: ty.Any, **kwargs: ty.Any) -> None:
@@ -67,10 +69,6 @@ class WatersReader(BaseReader):
         self._setup_coordinates()
         self.n_dt_bins = self.get_n_mobility_bins()
         self._x_pixel_size, self._y_pixel_size = get_pixel_spacing(self.path)
-
-        # update resolution and mz_ppm if set to auto
-        self.resolution = _auto_guess_resolution(self.resolution)
-        self.mz_ppm = _auto_guess_ppm(self.resolution, self.mz_ppm)
 
     @property
     def mz_min(self) -> float:
@@ -91,7 +89,7 @@ class WatersReader(BaseReader):
     def mz_ppm(self, value: float | str) -> None:
         """Set m/z ppm spacing."""
         if isinstance(value, str) and value == "auto":
-            self._mz_ppm = _auto_guess_ppm(self.resolution, self.mz_ppm)
+            self._mz_ppm = _auto_guess_ppm(self.resolution, value)
         else:
             self._mz_ppm = float(value)
         self._mz_grid = None  # reset mz grid
@@ -192,7 +190,7 @@ class WatersReader(BaseReader):
         self.frame_to_fcn = frame_to_fcn
         x_coordinates = _reindex(np.asarray(x_coordinates_))
         y_coordinates = _reindex(np.asarray(y_coordinates_))
-        self._xyz_coordinates = np.hstack((x_coordinates, y_coordinates, np.ones_like(x_coordinates)))
+        self._xyz_coordinates = np.column_stack((x_coordinates, y_coordinates, np.ones_like(x_coordinates)))
         self.frame_indices = np.asarray(frame_indices)
         self.x_min, self.x_max = get_min_max(x_coordinates)  # type: ignore[assignment]
         self.y_min, self.y_max = get_min_max(y_coordinates)  # type: ignore[assignment]
@@ -291,6 +289,27 @@ class WatersReader(BaseReader):
             indices = self.pixels
         for index in indices:
             yield self._read_spectrum(index)
+
+    def get_summed_spectrum(
+        self, indices: ty.Iterable[int], scales: np.ndarray | None = None, silent: bool = False
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Sum pixel data to produce summed mass spectrum."""
+        indices = np.asarray(indices)
+        if np.any(indices >= self.n_pixels):
+            raise ValueError("You cannot specify indices that are greater than the total number of pixels.")
+        if scales is None:
+            scales = np.ones(self.n_pixels, dtype=np.float32)
+        
+        mz_x = self.mz_x
+        mz_y = np.zeros_like(mz_x, dtype=np.float64)
+        for index in tqdm(indices, total=len(indices), disable=silent, desc="Summing spectra..."):
+            fcn, scan = self.frame_to_fcn[index]
+            x, y = self._read_scan_buffer_mz(fcn, scan)
+            y = y * scales[index]
+            x, y, _ = self._centroid_to_profile(x, y, resolution=self.resolution, mz_grid=mz_x)
+            mz_y += y
+        return mz_x, mz_y
+    
 
 
 def is_waters(path: PathLike) -> bool:
