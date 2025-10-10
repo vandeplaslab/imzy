@@ -31,8 +31,8 @@ class BrukerBaseReader(BaseReader):
     _dll_index_to_mz_func: ty.Callable
     _dll_mz_to_index_func: ty.Callable
 
-    def __init__(self, path: PathLike):
-        super().__init__(path)
+    def __init__(self, path: PathLike, auto_profile: bool = True):
+        super().__init__(path, auto_profile=auto_profile)
         self._init()
 
     def _init(self, *args: ty.Any, **kwargs: ty.Any) -> None:

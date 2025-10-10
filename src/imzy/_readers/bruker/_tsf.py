@@ -88,12 +88,12 @@ def _throw_last_error(dll_handle: CDLL | None) -> None:
 class TSFReader(BrukerBaseReader):
     sql_filename = "analysis.tsf"
 
-    def __init__(self, path: PathLike, use_recalibrated_state: bool = False):
+    def __init__(self, path: PathLike, use_recalibrated_state: bool = False, auto_profile: bool = True):
         self.use_recalibrated_state = use_recalibrated_state
         self.buffer_size_profile = 1024  # may grow in read...Spectrum()
         self.buffer_size_centroid = 1024  # may grow in read...Spectrum()
         self._is_centroid: bool | None = None
-        super().__init__(path)
+        super().__init__(path, auto_profile=auto_profile)
 
     def _init(self) -> None:
         super()._init()

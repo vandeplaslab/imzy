@@ -18,8 +18,7 @@ class NeoFlexReader(TSFReader):
     def __init__(
         self, path: PathLike, use_recalibrated_state: bool = False, auto_profile: bool = True, resolution: int = 30_000
     ):
-        super().__init__(path, use_recalibrated_state)
-        self.auto_profile = auto_profile
+        super().__init__(path, use_recalibrated_state, auto_profile=auto_profile)
         self.resolution = resolution
 
     @property

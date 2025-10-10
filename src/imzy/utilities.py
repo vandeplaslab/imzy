@@ -42,10 +42,27 @@ def get_rois_from_bruker_d(path: PathLike) -> list[int]:
     return list(range(0, last_roi + 1))
 
 
-def _safe_rmtree(path):
+def _safe_rmtree(path: PathLike) -> None:
+    from contextlib import suppress
     from shutil import rmtree
 
-    try:
+    with suppress(FileNotFoundError, OSError, PermissionError):
         rmtree(path)
-    except (OSError, FileNotFoundError):
-        pass
+
+
+def _auto_guess_ppm(resolution: int, mz_ppm: float | str) -> float:
+    """Get m/z ppm spacing."""
+    if mz_ppm == "auto":
+        if resolution >= 200_000:
+            mz_ppm = 1.0
+        elif resolution >= 120_000:
+            mz_ppm = 2.5
+        elif resolution >= 60_000:
+            mz_ppm = 3.5
+        elif resolution >= 50_000:
+            mz_ppm = 5.0
+        elif resolution >= 30_000:
+            mz_ppm = 7.0
+        else:
+            mz_ppm = 10.0
+    return mz_ppm  # type: ignore[return-value]

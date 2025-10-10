@@ -102,23 +102,23 @@ def _compute_normalizations(reader, clean: bool = True, silent: bool = False) ->
     # pre-assign array
     n_frames = reader.n_pixels
     framelist = reader.pixels
-    # start_frame, norm_array = check_cache()
     norm_array = np.zeros((n_frames, len(names)), dtype=np.float32)
-    for i, (_, y) in enumerate(
-        tqdm(
-            reader.spectra_iter(framelist, silent=True),
-            disable=silent,
-            miniters=100,
-            mininterval=2,
-            total=len(framelist),
-            desc="Computing normalizations...",
-        )
-    ):
-        y = y.astype(np.float32)
-        try:
-            norm_array[i] = calculate_normalizations_optimized(y)
-        except Exception:
-            norm_array[i] = calculate_normalizations_optimized.py_func(y)
+    with reader._enable_faster_iter():
+        for i, (_, y) in enumerate(
+            tqdm(
+                reader.spectra_iter(framelist, silent=True),
+                disable=silent,
+                miniters=100,
+                mininterval=2,
+                total=len(framelist),
+                desc="Computing normalizations...",
+            )
+        ):
+            y = y.astype(np.float32)
+            try:
+                norm_array[i] = calculate_normalizations_optimized(y)
+            except Exception:
+                norm_array[i] = calculate_normalizations_optimized.py_func(y)
     norm_array = np.nan_to_num(norm_array, nan=1.0)
     # clean-up normalizations
     with np.errstate(invalid="ignore", divide="ignore"), warnings.catch_warnings():

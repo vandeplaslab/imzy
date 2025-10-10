@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import typing as ty
-from contextlib import suppress
+from contextlib import contextmanager, suppress
 from functools import lru_cache
 from pathlib import Path
 
@@ -26,7 +26,8 @@ class BaseReader:
     _tic: np.ndarray | None = None
     _current = -1
 
-    def __init__(self, path: PathLike):
+    def __init__(self, path: PathLike, auto_profile: bool = True):
+        self.auto_profile = auto_profile
         self.path = Path(path)
 
     def _init(self, *args: ty.Any, **kwargs: ty.Any) -> None:
@@ -109,9 +110,30 @@ class BaseReader:
         """Retrieve spectrum."""
         return self.get_spectrum(item)
 
+    @contextmanager
+    def _disable_auto_profile(self) -> ty.Generator[None, None, None]:
+        """Context manager to temporarily disable auto profile mode."""
+        original_value = self.auto_profile
+        self.auto_profile = False
+        try:
+            yield
+        finally:
+            self.auto_profile = original_value
+
+    @contextmanager
+    def _enable_faster_iter(self) -> ty.Generator[None, None, None]:
+        """Context manager to temporarily enable faster iteration mode."""
+        original_value = self.auto_profile
+        self.auto_profile = False
+        try:
+            yield
+        finally:
+            self.auto_profile = original_value
+
+    @staticmethod
     def _centroid_to_profile(
-        self, x: np.ndarray, y: np.ndarray, resolution: int, mz_grid: np.ndarray
-    ) -> tuple[np.ndarray, np.ndarray]:
+        x: np.ndarray, y: np.ndarray, resolution: int, mz_grid: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Convert centroid to profile spectrum."""
         return centroid_to_profile(x, y, resolving_power=resolution, mz_grid=mz_grid)
 
@@ -202,16 +224,18 @@ class BaseReader:
         """Return chromatogram."""
         indices = np.asarray(indices)
         array = np.zeros(len(indices), dtype=np.float32)
-        for y in self.spectra_iter(indices):
-            array += np.sum(y)
+        with self._enable_faster_iter():
+            for y in self.spectra_iter(indices):
+                array += np.sum(y)
         return array
 
     def get_tic(self, silent: bool = False) -> np.ndarray:
         """Return TIC image."""
         if self._tic is None:
             res = np.zeros(self.n_pixels)
-            for i, (_, y) in enumerate(self.spectra_iter(silent=silent)):
-                res[i] = y.sum()
+            with self._enable_faster_iter():
+                for i, (_, y) in enumerate(self.spectra_iter(silent=silent)):
+                    res[i] = y.sum()
             self._tic = res
         return self._tic
 
@@ -232,9 +256,10 @@ class BaseReader:
         val = tol if tol else ppm
         res = np.full(self.n_pixels, dtype=np.float32, fill_value=fill_value)
         if self.is_centroid:
-            for i, (x, y) in enumerate(self.spectra_iter(silent=silent)):
-                mask = func(x, mz, val)
-                res[i] = y[mask].sum()
+            with self._enable_faster_iter():
+                for i, (x, y) in enumerate(self.spectra_iter(silent=silent)):
+                    mask = func(x, mz, val)
+                    res[i] = y[mask].sum()
         else:
             x, _ = self[0]
             mask = func(x, mz, val)
@@ -255,8 +280,9 @@ class BaseReader:
         res = np.full((self.n_pixels, len(mzs)), dtype=np.float32, fill_value=fill_value)
 
         if self.is_centroid:
-            for i, (x, y) in enumerate(self.spectra_iter(silent=silent)):
-                res[i] = accumulate_peaks_centroid(mzs_min, mzs_max, x, y)
+            with self._enable_faster_iter():
+                for i, (x, y) in enumerate(self.spectra_iter(silent=silent)):
+                    res[i] = accumulate_peaks_centroid(mzs_min, mzs_max, x, y)
         else:
             x, _ = self.get_spectrum(0)
             indices = find_between_batch(x, mzs_min, mzs_max)
@@ -278,9 +304,10 @@ class BaseReader:
 
         n = self.n_pixels
         if self.is_centroid:
-            for i, (x, y) in enumerate(self.spectra_iter(silent=silent)):
-                res[i] = accumulate_peaks_centroid(mzs_min, mzs_max, x, y)
-                yield i, n, None
+            with self._enable_faster_iter():
+                for i, (x, y) in enumerate(self.spectra_iter(silent=silent)):
+                    res[i] = accumulate_peaks_centroid(mzs_min, mzs_max, x, y)
+                    yield i, n, None
         else:
             x, _ = self.get_spectrum(0)
             indices = find_between_batch(x, mzs_min, mzs_max)
@@ -457,7 +484,7 @@ class BaseReader:
             data[norm] = norms[:, i]
         return data
 
-    def extract_normalizations_hdf5(self, hdf_path: PathLike, silent: bool = False):
+    def extract_normalizations_hdf5(self, hdf_path: PathLike, silent: bool = False) -> Path:
         """Extract normalizations."""
         from imzy._hdf5_mixin import check_hdf5
         from imzy._normalizations._extract import create_normalizations_hdf5, extract_normalizations_hdf5

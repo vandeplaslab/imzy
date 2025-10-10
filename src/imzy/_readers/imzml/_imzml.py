@@ -14,6 +14,7 @@ from tqdm import tqdm
 from imzy._readers._base import BaseReader
 from imzy._readers.imzml._ontology import get_cv_param
 from imzy.hookspec import hook_impl
+from imzy.utilities import _auto_guess_ppm
 
 PRECISION_DICT = {"32-bit float": "f", "64-bit float": "d", "32-bit integer": "i", "64-bit integer": "l"}
 SIZE_DICT = {"f": 4, "d": 8, "i": 4, "l": 8}
@@ -59,42 +60,27 @@ class IMZMLReader(BaseReader):
     _ibd_path: Path | None = None
     _icache_path: Path | None = None
     _is_centroid: bool | None = None
+    _mz_grid: np.ndarray | None = None
 
     def __init__(
         self,
         path: PathLike,
         ibd_path: PathLike | None = None,
-        mz_ppm: float = 1.0,
+        auto_profile: bool = True,
+        mz_ppm: float | str = "auto",
+        resolution: int = 50_000,  # this is a pure guess and should match the instrument
         mz_min: float | None = None,
         mz_max: float | None = None,
     ):
-        super().__init__(path)
-        self._init(ibd_path)
-        self.mz_ppm = mz_ppm
+        super().__init__(path, auto_profile=auto_profile)
         self._mz_min = mz_min
         self._mz_max = mz_max
+        self.resolution = resolution
+        self.mz_ppm = _auto_guess_ppm(self.resolution, mz_ppm)
+        self._init(ibd_path)
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}<{self.path}; centroid={self.is_centroid}>"
-
-    @property
-    def mz_ppm(self) -> float:
-        """Return m/z ppm spacing."""
-        return self._mz_ppm
-    
-    @mz_ppm.setter
-    def mz_ppm(self, value: float | str) -> None:
-        """Set m/z ppm spacing."""
-        if self.is_centroid:
-            self._mz_ppm = float(value)
-            self._mz_grid = None  # reset mz grid
-
-    @property
-    def ibd_path(self) -> Path:
-        """Return path to ibd file."""
-        if not self._ibd_path:
-            raise ValueError("ibd path is not set.")
-        return self._ibd_path
 
     def _init(self, ibd_path: PathLike | None = None) -> None:
         """Initialize metadata."""
@@ -113,12 +99,31 @@ class IMZMLReader(BaseReader):
             self._imzml_cache = IMZMLCache(metadata)
         self._mz_size, self._int_size = SIZE_DICT[self.mz_precision], SIZE_DICT[self.int_precision]
 
-        # if cache file does not exist, write it immediately
+        # if the cache file does not exist, write it immediately
         if not self._icache_path.exists():
             try:
                 write_icache(self, self._icache_path)
             except OSError as error:  # in case there is no space or can't write?
                 print(error)
+
+    @property
+    def mz_ppm(self) -> float:
+        """Return m/z ppm spacing."""
+        return self._mz_ppm
+
+    @mz_ppm.setter
+    def mz_ppm(self, value: float | str) -> None:
+        """Set m/z ppm spacing."""
+        if self.is_centroid:
+            self._mz_ppm = float(value)
+            self._mz_grid = None  # reset mz grid
+
+    @property
+    def ibd_path(self) -> Path:
+        """Return path to ibd file."""
+        if not self._ibd_path:
+            raise ValueError("ibd path is not set.")
+        return self._ibd_path
 
     @property
     def mz_min(self) -> float:
@@ -168,10 +173,13 @@ class IMZMLReader(BaseReader):
     @property
     def mz_x(self) -> np.ndarray:
         """Return m/z axis."""
-        if self.is_centroid:
-            mz_min, mz_max = self._estimate_mass_range()
-            return get_ppm_axis(mz_min, mz_max, self.mz_ppm)
-        return self.get_spectrum(0)[0]
+        if self._mz_grid is None:
+            if self.is_centroid:
+                mz_min, mz_max = self._estimate_mass_range()
+                self._mz_grid = get_ppm_axis(mz_min, mz_max, self.mz_ppm)
+            else:
+                self._mz_grid = self.get_spectrum(0)[0]
+        return self._mz_grid
 
     def get_physical_coordinates(self, index: int) -> tuple[float, float]:
         """For a pixel index i, return real-world coordinates in micrometers.
@@ -204,7 +212,7 @@ class IMZMLReader(BaseReader):
         return im
 
     def flatten(self, image: np.ndarray) -> np.ndarray:
-        """Retrieve original vector of intensities from an image."""
+        """Retrieve the original vector of intensities from an image."""
         return image[self.y_coordinates - 1, self.x_coordinates - 1]
 
     def get_summed_spectrum(
@@ -221,7 +229,7 @@ class IMZMLReader(BaseReader):
         return self._get_summed_spectrum_profile(indices, scales=scales, silent=silent)
 
     def _get_summed_spectrum_profile(
-        self, indices: ty.Iterable[int], scales: np.ndarray | None = None, silent: bool = False
+        self, indices: ty.Iterable[int], scales: np.ndarray, silent: bool = False
     ) -> tuple[np.ndarray, np.ndarray]:
         indices = np.asarray(indices)
         if indices.size == 0:
@@ -236,12 +244,12 @@ class IMZMLReader(BaseReader):
         return mz_x, mz_y
 
     def _get_summed_spectrum_centroid(
-        self, indices: ty.Iterable[int], scales: np.ndarray | None = None, silent: bool = False
+        self, indices: ty.Iterable[int], scales: np.ndarray, silent: bool = False
     ) -> tuple[np.ndarray, np.ndarray]:
         # Creating summed spectrum from centroided data is a lot harder because there is no consensus axis in which case
         # we must create our own.
-        # We have decided to create resampled spectrum with pre-defined ppm limit. This is not ideal but its better than
-        # not doing it at all.
+        # We have decided to create a resampled spectrum with a pre-defined ppm limit. This is not ideal but it's better
+        # than not doing it at all.
 
         indices = np.asarray(indices)
         if indices.size == 0:
@@ -249,10 +257,11 @@ class IMZMLReader(BaseReader):
 
         mz_x = self.mz_x
         mz_y = np.zeros_like(mz_x, dtype=np.float64)
-        for index, (_x, y) in enumerate(
+        for index, (x, y) in enumerate(
             tqdm(self._read_spectra(indices), total=len(indices), disable=silent, desc="Summing spectra...")
         ):
             y = y * scales[indices[index]]
+            x, y, _ = self._centroid_to_profile(x, y, resolution=self.resolution, mz_grid=mz_x)
             mz_y += y
         return mz_x, mz_y
 

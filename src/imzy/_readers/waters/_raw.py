@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import typing as ty
+from contextlib import contextmanager
 from pathlib import Path
 
 import numpy as np
-from tqdm import tqdm
 from ims_utils.spectrum import get_ppm_axis
 from koyo.system import IS_WIN
 from koyo.typing import PathLike
 from koyo.utilities import get_min_max
+from tqdm import tqdm
 
 from imzy._readers._base import BaseReader
 from imzy._readers.waters.MassLynxRawChromatogramReader import MassLynxRawChromatogramReader
@@ -18,6 +19,7 @@ from imzy._readers.waters.MassLynxRawInfoReader import MassLynxRawInfoReader
 from imzy._readers.waters.MassLynxRawReader import MassLynxException, MassLynxRawReader
 from imzy._readers.waters.MassLynxRawScanReader import MassLynxRawScanReader
 from imzy.hookspec import hook_impl
+from imzy.utilities import _auto_guess_ppm
 
 
 class WatersReader(BaseReader):
@@ -31,13 +33,19 @@ class WatersReader(BaseReader):
         Automatically convert centroid data to profile data, by default True.
     resolution : int | str, optional
         IF "auto", use the instrument resolution from the metadata.
+    mz_ppm : float | str, optional
+        Specify the m/z ppm spacing, by default "auto". If "auto", use a reasonable value based on the instrument
+        resolution.
+    enable_ion_mobility : bool, optional
+        Enable ion mobility dimension, by default True. If the data does not have ion mobility, this will be ignored.
+        If the data does have ion mobility, this will enable reading the ion mobility dimension.
     """
 
     # mass offset when determining the mz range (can't remember why...)
     mz_offset: float = 5
     _mz_min: float
     _mz_max: float
-    _mz_ppm: float | None = None
+    _mz_ppm: float | None = 5.0  # default m/z ppm spacing
     _mz_grid: np.ndarray | None = None
 
     # Reader objects
@@ -47,10 +55,15 @@ class WatersReader(BaseReader):
     _chromatogram_reader: MassLynxRawChromatogramReader | None = None
 
     def __init__(
-        self, path: PathLike, auto_profile: bool = True, mz_ppm: float | str = "auto", resolution: int | str = "auto"
+        self,
+        path: PathLike,
+        auto_profile: bool = True,
+        mz_ppm: float | str = "auto",
+        resolution: int | str = "auto",
+        enable_ion_mobility: bool = True,
     ) -> None:
-        super().__init__(path)
-        self.auto_profile = auto_profile
+        super().__init__(path, auto_profile=auto_profile)
+        self.enable_ion_mobility = enable_ion_mobility
         self.resolution = _auto_guess_resolution(resolution)
         self.mz_ppm = _auto_guess_ppm(self.resolution, mz_ppm)
         self._init()
@@ -71,6 +84,15 @@ class WatersReader(BaseReader):
         self._x_pixel_size, self._y_pixel_size = get_pixel_spacing(self.path)
 
     @property
+    def is_centroid(self) -> bool:
+        """Flag to indicate whether data is in centroid or profile mode.
+
+        Waters data is always in centroid mode, even if it's stored as profile, you can't read it as such using their
+        SDK.
+        """
+        return True
+
+    @property
     def mz_min(self) -> float:
         """Return minimum m/z value."""
         return self._mz_min
@@ -84,7 +106,7 @@ class WatersReader(BaseReader):
     def mz_ppm(self) -> float:
         """Return m/z ppm spacing."""
         return self._mz_ppm
-    
+
     @mz_ppm.setter
     def mz_ppm(self, value: float | str) -> None:
         """Set m/z ppm spacing."""
@@ -96,31 +118,44 @@ class WatersReader(BaseReader):
 
     @property
     def reader(self) -> MassLynxRawReader:
-        """Create file parser."""
+        """Create the file parser."""
         if self._reader is None:
             self._reader = MassLynxRawReader(self.path, 1)  # type: ignore[no-untyped-call]
         return self._reader
 
     @property
     def info_reader(self) -> MassLynxRawInfoReader:
-        """Create a info parser."""
+        """Create the info parser."""
         if self._info_reader is None:
             self._info_reader = MassLynxRawInfoReader(self.reader)  # type: ignore[no-untyped-call]
         return self._info_reader
 
     @property
     def data_reader(self) -> MassLynxRawScanReader:
-        """Create a data parser."""
+        """Create the data parser."""
         if self._data_reader is None:
             self._data_reader = MassLynxRawScanReader(self.reader)  # type: ignore[no-untyped-call]
         return self._data_reader
 
     @property
     def chromatogram_reader(self) -> MassLynxRawChromatogramReader:
-        """Create a chromatogram parser."""
+        """Create the chromatogram parser."""
         if self._chromatogram_reader is None:
             self._chromatogram_reader = MassLynxRawChromatogramReader(self.reader)  # type: ignore[no-untyped-call]
         return self._chromatogram_reader
+
+    @contextmanager
+    def _enable_faster_iter(self) -> ty.Generator[None, None, None]:
+        """Context manager to temporarily enable faster iteration mode."""
+        auto_profile = self.auto_profile
+        self.auto_profile = False
+        enable_faster_iter = True
+        self.enable_ion_mobility = False
+        try:
+            yield
+        finally:
+            self.auto_profile = auto_profile
+            self.enable_ion_mobility = enable_faster_iter
 
     def _setup_functions(self) -> tuple[int, dict, int, float, float, list[float], int]:
         """Get stats for each function."""
@@ -219,7 +254,7 @@ class WatersReader(BaseReader):
     @property
     def rois(self) -> list[int]:
         """Return a list of ROI indices."""
-        return [0]  # waters files always have single ROI
+        return [0]  # waters files always have a single ROI
 
     @property
     def x_pixel_size(self) -> float:
@@ -243,7 +278,7 @@ class WatersReader(BaseReader):
 
     def _read_spectrum(self, index: int) -> tuple[np.ndarray, np.ndarray]:
         """Read a single spectrum."""
-        if self.n_dt_bins == 1:
+        if self.n_dt_bins == 1 or not self.enable_ion_mobility:
             fcn, scan = self.frame_to_fcn[index]
             x, y = self._read_scan_buffer_mz(fcn, scan)
             if self.auto_profile:
@@ -252,9 +287,9 @@ class WatersReader(BaseReader):
         else:
             fcn, scan = self.frame_to_fcn[index]
             res = self._read_scan_buffer_dt(fcn, scan, 0, self.n_dt_bins)
+            x = self.mz_x
             if self.auto_profile:
                 # convert each drift time spectrum to profile
-                x = self.mz_x
                 y_profile = np.zeros((self.mz_x.size, self.n_dt_bins), dtype=np.float32)
                 for drift_id, (x_, y_) in enumerate(res):
                     if np.any(y_ > 0):
@@ -263,6 +298,8 @@ class WatersReader(BaseReader):
                         )
                         y_profile[:, drift_id] = y_profile_
                 y = y_profile
+            else:
+                y = res  # this will actually be a list of (x, y) tuples
             return x, y
 
     def _read_scan_buffer_mz(self, fcn: int, frame_id: int) -> tuple[np.ndarray, np.ndarray]:
@@ -299,7 +336,7 @@ class WatersReader(BaseReader):
             raise ValueError("You cannot specify indices that are greater than the total number of pixels.")
         if scales is None:
             scales = np.ones(self.n_pixels, dtype=np.float32)
-        
+
         mz_x = self.mz_x
         mz_y = np.zeros_like(mz_x, dtype=np.float64)
         for index in tqdm(indices, total=len(indices), disable=silent, desc="Summing spectra..."):
@@ -309,7 +346,6 @@ class WatersReader(BaseReader):
             x, y, _ = self._centroid_to_profile(x, y, resolution=self.resolution, mz_grid=mz_x)
             mz_y += y
         return mz_x, mz_y
-    
 
 
 def is_waters(path: PathLike) -> bool:
@@ -341,24 +377,6 @@ def _auto_guess_resolution(resolution: int | str) -> int:
         # 120-200k is a reasonable guess.
         resolution = 50_000
     return resolution  # type: ignore[return-value]
-
-
-def _auto_guess_ppm(resolution: int, mz_ppm: float | str) -> float:
-    """Get m/z ppm spacing."""
-    if mz_ppm == "auto":
-        if resolution >= 200_000:
-            mz_ppm = 1.0
-        elif resolution >= 120_000:
-            mz_ppm = 2.5
-        elif resolution >= 60_000:
-            mz_ppm = 3.5
-        elif resolution >= 50_000:
-            mz_ppm = 5.0
-        elif resolution >= 30_000:
-            mz_ppm = 7.0
-        else:
-            mz_ppm = 10.0
-    return mz_ppm  # type: ignore[return-value]
 
 
 def get_pixel_spacing(path: PathLike) -> tuple[float, float]:
