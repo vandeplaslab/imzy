@@ -2,7 +2,7 @@
 
 from ctypes import POINTER, c_bool, c_float, c_int, c_void_p, cast
 
-from imzy._readers.waters.MassLynxRawReader import MassLynxBaseType, MassLynxRawReader
+from imzy._readers.waters.MassLynxRawReader import MassLynxBaseType, MassLynxRawReader, DLL
 
 
 class MassLynxRawChromatogramReader(MassLynxRawReader):
@@ -21,7 +21,7 @@ class MassLynxRawChromatogramReader(MassLynxRawReader):
         pIntensities = c_void_p()
 
         # read tic
-        readTIC = MassLynxRawReader.massLynxDll.readTICChromatogram
+        readTIC = DLL.readTICChromatogram
         readTIC.argtypes = [c_void_p, c_int, POINTER(c_void_p), POINTER(c_void_p), POINTER(c_int)]
         super().CheckReturnCode(readTIC(self._getReader(), whichFunction, pTimes, pIntensities, size))
 
@@ -48,7 +48,7 @@ class MassLynxRawChromatogramReader(MassLynxRawReader):
         pIntensities = c_void_p()
 
         # read tic
-        readBPI = MassLynxRawReader.massLynxDll.readTICChromatogram
+        readBPI = DLL.readTICChromatogram
         readBPI.argtypes = [c_void_p, c_int, POINTER(c_void_p), POINTER(c_void_p), POINTER(c_int)]
         super().CheckReturnCode(readBPI(self._getReader(), whichFunction, pTimes, pIntensities, size))
 
@@ -91,7 +91,7 @@ class MassLynxRawChromatogramReader(MassLynxRawReader):
         # create array of pointers to hold return intensities
         pIntensities = c_void_p()
 
-        readMassChroms = MassLynxRawReader.massLynxDll.readMassChromatograms
+        readMassChroms = DLL.readMassChromatograms
         readMassChroms.argtypes = [
             c_void_p,
             c_int,

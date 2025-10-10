@@ -6,7 +6,7 @@ MassLynx Python SDK.
 import ctypes
 from ctypes import POINTER, c_bool, c_char, c_char_p, c_float, c_int, c_void_p, cast
 
-from imzy._readers.waters.MassLynxRawReader import MassLynxBaseType, MassLynxRawReader
+from imzy._readers.waters.MassLynxRawReader import MassLynxBaseType, MassLynxRawReader, DLL
 
 # from enum import IntEnum
 
@@ -17,7 +17,7 @@ class MassLynxRawInfoReader(MassLynxRawReader):
 
     def GetNumberofFunctions(self):
         size = c_int(0)
-        getFunctionCount = MassLynxRawReader.massLynxDll.getFunctionCount
+        getFunctionCount = DLL.getFunctionCount
         getFunctionCount.argtypes = [c_void_p, POINTER(c_int)]
         super().CheckReturnCode(getFunctionCount(self._getReader(), size))
 
@@ -25,7 +25,7 @@ class MassLynxRawInfoReader(MassLynxRawReader):
 
     def GetScansInFunction(self, whichFunction):
         size = c_int(0)
-        getScanCount = MassLynxRawReader.massLynxDll.getScanCount
+        getScanCount = DLL.getScanCount
         getScanCount.argtypes = [c_void_p, c_int, POINTER(c_int)]
         super().CheckReturnCode(getScanCount(self._getReader(), whichFunction, size))
 
@@ -34,7 +34,7 @@ class MassLynxRawInfoReader(MassLynxRawReader):
     def GetAcquisitionMassRange(self, whichFunction):
         lowMass = c_float(0)
         highMass = c_float(0)
-        getAcquisitionMassRange = MassLynxRawReader.massLynxDll.getAcquisitionMassRange
+        getAcquisitionMassRange = DLL.getAcquisitionMassRange
         getAcquisitionMassRange.argtypes = [c_void_p, c_int, c_int, POINTER(c_float), POINTER(c_float)]
         super().CheckReturnCode(getAcquisitionMassRange(self._getReader(), whichFunction, 0, lowMass, highMass))
 
@@ -43,7 +43,7 @@ class MassLynxRawInfoReader(MassLynxRawReader):
     def GetAcquisitionTimeRange(self, whichFunction):
         startTime = c_float(0)
         endTime = c_float(0)
-        getAcquisitionTimeRange = MassLynxRawReader.massLynxDll.getAcquisitionTimeRange
+        getAcquisitionTimeRange = DLL.getAcquisitionTimeRange
         getAcquisitionTimeRange.argtypes = [c_void_p, c_int, POINTER(c_float), POINTER(c_float)]
         super().CheckReturnCode(getAcquisitionTimeRange(self._getReader(), whichFunction, startTime, endTime))
 
@@ -51,7 +51,7 @@ class MassLynxRawInfoReader(MassLynxRawReader):
 
     def GetFunctionType(self, whichFunction):
         functionType = c_int(0)
-        getFunctionType = MassLynxRawReader.massLynxDll.getFunctionType
+        getFunctionType = DLL.getFunctionType
         getFunctionType.argtypes = [c_void_p, c_int, POINTER(c_int)]
         super().CheckReturnCode(getFunctionType(self._getReader(), whichFunction, functionType))
 
@@ -60,7 +60,7 @@ class MassLynxRawInfoReader(MassLynxRawReader):
     def GetFunctionTypeString(self, functionType):
         #         functionTypeString = c_char_p()
         temp = c_char_p()
-        getFunctionTypeString = MassLynxRawReader.massLynxDll.getFunctionTypeString
+        getFunctionTypeString = DLL.getFunctionTypeString
         getFunctionTypeString.argtypes = [c_void_p, c_int, POINTER(c_char_p)]
         self.CheckReturnCode(getFunctionTypeString(self._getReader(), functionType, temp))
 
@@ -68,7 +68,7 @@ class MassLynxRawInfoReader(MassLynxRawReader):
 
     def IsContinuum(self, whichFunction):
         continuum = c_bool(0)
-        isContinuum = MassLynxRawReader.massLynxDll.isContinuum
+        isContinuum = DLL.isContinuum
         isContinuum.argtypes = [c_void_p, c_int, POINTER(c_bool)]
         super().CheckReturnCode(isContinuum(self._getReader(), whichFunction, continuum))
 
@@ -76,7 +76,7 @@ class MassLynxRawInfoReader(MassLynxRawReader):
 
     def GetIonMode(self, whichFunction):
         ionMode = c_int()
-        getIonMode = MassLynxRawReader.massLynxDll.getIonMode
+        getIonMode = DLL.getIonMode
         getIonMode.argtypes = [c_void_p, c_int, POINTER(c_int)]
         super().CheckReturnCode(getIonMode(self._getReader(), whichFunction, ionMode))
 
@@ -84,7 +84,7 @@ class MassLynxRawInfoReader(MassLynxRawReader):
 
     def GetIonModeString(self, ionMode):
         temp = c_char_p()
-        getIonModeString = MassLynxRawReader.massLynxDll.getIonModeString
+        getIonModeString = DLL.getIonModeString
         getIonModeString.argtypes = [c_void_p, c_int, POINTER(c_char_p)]
         super().CheckReturnCode(getIonModeString(self._getReader(), ionMode, temp))
         return super().ToString(temp)
@@ -96,7 +96,7 @@ class MassLynxRawInfoReader(MassLynxRawReader):
         items = (c_int * nItems)(*whichItems)
         delimiter = ctypes.create_string_buffer(1)
 
-        getHeaderItem = MassLynxRawReader.massLynxDll.getHeaderItems
+        getHeaderItem = DLL.getHeaderItems
         getHeaderItem.argtypes = [c_void_p, POINTER(c_int), POINTER(c_char_p), c_int, POINTER(c_char)]
         super().CheckReturnCode(getHeaderItem(self._getReader(), items, temp, nItems, delimiter))
 
@@ -126,7 +126,7 @@ class MassLynxRawInfoReader(MassLynxRawReader):
         items = (c_int * nItems)(*whichItems)
         delimiter = ctypes.create_string_buffer(1)
 
-        getScanItem = MassLynxRawReader.massLynxDll.getScanItems
+        getScanItem = DLL.getScanItems
         getScanItem.argtypes = [c_void_p, c_int, c_int, POINTER(c_int), POINTER(c_char_p), c_int, POINTER(c_char)]
         super().CheckReturnCode(
             getScanItem(self._getReader(), whichFunction, whichScan, items, temp, nItems, delimiter)
@@ -144,7 +144,7 @@ class MassLynxRawInfoReader(MassLynxRawReader):
         items = (c_int * nItems)(*whichItems)
         delimiter = ctypes.create_string_buffer(1)
 
-        getScanItemNames = MassLynxRawReader.massLynxDll.getScanItemNames
+        getScanItemNames = DLL.getScanItemNames
         getScanItemNames.argtypes = [c_void_p, POINTER(c_int), POINTER(c_char_p), c_int, POINTER(c_char)]
         super().CheckReturnCode(getScanItemNames(self._getReader(), items, temp, nItems, delimiter))
 
@@ -156,7 +156,7 @@ class MassLynxRawInfoReader(MassLynxRawReader):
     def GetItemsInFunction(self, whichFunction, nWhichScan):
         size = c_int(0)
         pItems = c_void_p()
-        getItemsInFunction = MassLynxRawReader.massLynxDll.getItemsInFunction
+        getItemsInFunction = DLL.getItemsInFunction
         getItemsInFunction.argtypes = [c_void_p, c_int, POINTER(c_void_p), POINTER(c_int)]
         super().CheckReturnCode(getItemsInFunction(self._getReader(), whichFunction, pItems, size))
 
@@ -171,7 +171,7 @@ class MassLynxRawInfoReader(MassLynxRawReader):
 
     def GetRetentionTime(self, whichFunction, nWhichScan):
         retentionTime = c_float(0)
-        getRetentionTime = MassLynxRawReader.massLynxDll.getRetentionTime
+        getRetentionTime = DLL.getRetentionTime
         getRetentionTime.argtypes = [c_void_p, c_int, c_int, POINTER(c_float)]
         super().CheckReturnCode(getRetentionTime(self._getReader(), whichFunction, nWhichScan, retentionTime))
 
@@ -179,7 +179,7 @@ class MassLynxRawInfoReader(MassLynxRawReader):
 
     def GetDriftTime(self, whichFunction, nWhichDrift):
         driftTime = c_float(0)
-        getDriftTime = MassLynxRawReader.massLynxDll.getDriftTime
+        getDriftTime = DLL.getDriftTime
         getDriftTime.argtypes = [c_void_p, c_int, c_int, POINTER(c_float)]
         super().CheckReturnCode(getDriftTime(self._getReader(), whichFunction, nWhichDrift, driftTime))
 
@@ -187,7 +187,7 @@ class MassLynxRawInfoReader(MassLynxRawReader):
 
     def CanLockMassCorrect(self):
         canApply = c_bool(0)
-        canLockMassCorrect = MassLynxRawReader.massLynxDll.canLockMassCorrect
+        canLockMassCorrect = DLL.canLockMassCorrect
         canLockMassCorrect.argtypes = [c_void_p, POINTER(c_bool)]
         super().CheckReturnCode(canLockMassCorrect(self._getReader(), canApply))
 
@@ -195,7 +195,7 @@ class MassLynxRawInfoReader(MassLynxRawReader):
 
     def IsLockMassCorrected(self):
         corrected = c_bool(0)
-        mlMethod = MassLynxRawReader.massLynxDll.isLockMassCorrected
+        mlMethod = DLL.isLockMassCorrected
         mlMethod.argtypes = [c_void_p, POINTER(c_bool)]
         super().CheckReturnCode(mlMethod(self._getReader(), corrected))
 

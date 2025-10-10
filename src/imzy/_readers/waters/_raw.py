@@ -73,6 +73,30 @@ class WatersReader(BaseReader):
         self.mz_ppm = _auto_guess_ppm(self.resolution, self.mz_ppm)
 
     @property
+    def mz_min(self) -> float:
+        """Return minimum m/z value."""
+        return self._mz_min
+
+    @property
+    def mz_max(self) -> float:
+        """Return maximum m/z value."""
+        return self._mz_max
+
+    @property
+    def mz_ppm(self) -> float:
+        """Return m/z ppm spacing."""
+        return self._mz_ppm
+    
+    @mz_ppm.setter
+    def mz_ppm(self, value: float | str) -> None:
+        """Set m/z ppm spacing."""
+        if isinstance(value, str) and value == "auto":
+            self._mz_ppm = _auto_guess_ppm(self.resolution, self.mz_ppm)
+        else:
+            self._mz_ppm = float(value)
+        self._mz_grid = None  # reset mz grid
+
+    @property
     def reader(self) -> MassLynxRawReader:
         """Create file parser."""
         if self._reader is None:
@@ -229,11 +253,12 @@ class WatersReader(BaseReader):
             return x, y
         else:
             fcn, scan = self.frame_to_fcn[index]
-            x, y = self._read_scan_buffer_dt(fcn, scan, 0, self.n_dt_bins)
+            res = self._read_scan_buffer_dt(fcn, scan, 0, self.n_dt_bins)
             if self.auto_profile:
                 # convert each drift time spectrum to profile
-                y_profile = np.zeros((self.mz_x.size, len(y)), dtype=np.float32)
-                for drift_id, (x_, y_) in enumerate(y):
+                x = self.mz_x
+                y_profile = np.zeros((self.mz_x.size, self.n_dt_bins), dtype=np.float32)
+                for drift_id, (x_, y_) in enumerate(res):
                     if np.any(y_ > 0):
                         _, y_profile_, _ = self._centroid_to_profile(
                             x_, y_, resolution=self.resolution, mz_grid=self.mz_x

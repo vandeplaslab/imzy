@@ -78,6 +78,18 @@ class IMZMLReader(BaseReader):
         return f"{self.__class__.__name__}<{self.path}; centroid={self.is_centroid}>"
 
     @property
+    def mz_ppm(self) -> float:
+        """Return m/z ppm spacing."""
+        return self._mz_ppm
+    
+    @mz_ppm.setter
+    def mz_ppm(self, value: float | str) -> None:
+        """Set m/z ppm spacing."""
+        if self.is_centroid:
+            self._mz_ppm = float(value)
+            self._mz_grid = None  # reset mz grid
+
+    @property
     def ibd_path(self) -> Path:
         """Return path to ibd file."""
         if not self._ibd_path:
