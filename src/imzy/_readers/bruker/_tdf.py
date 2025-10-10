@@ -260,11 +260,11 @@ class TDFReader(BrukerBaseReader):
             if required_len == 0:
                 _throw_last_error(self.dll)
 
-            if required_len > cnt:
+            if required_len > self.buffer_size_profile:
                 if required_len > 16777216:
                     # arbitrary limit for now...
                     raise RuntimeError("Maximum expected frame size exceeded.")
-                self.buffer_size_profile = int(required_len / 4 + 1)  # grow buffer
+                self.buffer_size_profile = required_len  # grow buffer
             else:
                 break
         return buf

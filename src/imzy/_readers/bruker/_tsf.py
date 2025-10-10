@@ -211,7 +211,7 @@ class TSFReader(BrukerBaseReader):
             if required_len < 0:
                 _throw_last_error(self.dll)
 
-            if required_len > cnt:
+            if required_len > self.buffer_size_profile:
                 if required_len > 16777216:
                     # arbitrary limit for now...
                     raise RuntimeError("Maximum expected frame size exceeded.")

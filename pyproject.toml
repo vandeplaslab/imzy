@@ -60,9 +60,15 @@ plot = ["matplotlib"]
 zarr = ["zarr", "dask", "rechunker"]
 hdf5 = ["yoki5", "h5py", "hdf5plugin"]
 all = ["imzy[hdf5]", "imzy[zarr]", "imzy[plot]"]
+test = [
+    "imzy[all]",
+    "pytest>=8.3.5",
+    "pytest-cov>=6.1.1",
+]
 
 [dependency-groups]
 test = [
+    "imzy[all]",
     "pytest>=8.3.5",
     "pytest-cov>=6.1.1",
 ]
