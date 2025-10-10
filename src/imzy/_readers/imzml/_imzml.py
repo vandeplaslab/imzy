@@ -75,9 +75,9 @@ class IMZMLReader(BaseReader):
         super().__init__(path, auto_profile=auto_profile)
         self._mz_min = mz_min
         self._mz_max = mz_max
+        self._init(ibd_path)
         self.resolution = resolution
         self.mz_ppm = _auto_guess_ppm(self.resolution, mz_ppm)
-        self._init(ibd_path)
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}<{self.path}; centroid={self.is_centroid}>"
