@@ -62,10 +62,10 @@ def test_init(path):
     assert mz_x.shape == mz_y.shape
 
 
-@pytest.mark.parametrize("path", get_imzml_data())
 @pytest.mark.skipif(
     not (is_installed("zarr") and is_installed("rechunker") and is_installed("dask")), reason="zarr not installed"
 )
+@pytest.mark.parametrize("path", get_imzml_data())
 def test_to_zarr(path, tmp_path):
     reader = IMZMLReader(path)
 
@@ -75,10 +75,10 @@ def test_to_zarr(path, tmp_path):
     assert zarr_path.exists()
 
 
-@pytest.mark.parametrize("path", get_imzml_data())
 @pytest.mark.skipif(
     not (is_installed("yoki5") and is_installed("h5py") and is_installed("hdf5plugin")), reason="zarr not installed"
 )
+@pytest.mark.parametrize("path", get_imzml_data())
 def test_to_h5(path, tmp_path):
     reader = IMZMLReader(path)
 
