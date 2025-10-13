@@ -53,6 +53,11 @@ class BaseReader:
         """Return mass spectrum."""
         return self._read_spectrum(index)
 
+    def get_intensities(self, index: int) -> np.ndarray:
+        """Return intensities for a given pixel index."""
+        _, intensities = self.get_spectrum(index)
+        return intensities
+
     def get_summed_spectrum(
         self, indices: ty.Iterable[int], scales: np.ndarray | None = None, silent: bool = False
     ) -> tuple[np.ndarray, np.ndarray]:
