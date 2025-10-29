@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import typing as ty
 from contextlib import contextmanager, suppress
-from functools import lru_cache
+from functools import cached_property, lru_cache
 from pathlib import Path
 
 import numpy as np
@@ -85,15 +85,13 @@ class BaseReader:
         """Return y pixel size in micrometers."""
         raise NotImplementedError("Must implement method")
 
-    @property
-    @lru_cache
+    @cached_property
     def x_size(self) -> int:
         """X-axis size."""
         min_val, max_max = get_min_max(self.x_coordinates)
         return int(max_max - min_val + 1)
 
-    @property
-    @lru_cache
+    @cached_property
     def y_size(self) -> int:
         """Y-axis size."""
         min_val, max_max = get_min_max(self.y_coordinates)
@@ -166,7 +164,7 @@ class BaseReader:
 
     def flatten(self, array: np.ndarray) -> np.ndarray:
         """Flatten 2D image."""
-        return array[self.y_coordinates, self.x_coordinates]
+        return array[self.y_coordinates, self.x_coordinates]  # type: ignore[no-any-return]
 
     @property
     def image_shape(self) -> tuple[int, int]:
@@ -177,11 +175,20 @@ class BaseReader:
         """Convert index to x, y coordinates."""
         return self.x_coordinates[index], self.y_coordinates[index]
 
-    def xy_coordinates_to_index(self, x: int, y: int) -> int:
+    def xy_coordinates_to_index(self, x: int, y: int) -> int | None:
         """Convert x, y coordinates to index."""
-        indices = np.where((self.x_coordinates == x) & (self.y_coordinates == y))[0]
-        if indices.size > 0:
-            return indices[0]
+        return self.get_index_for_location(x, y)
+
+    def get_index_for_location(self, x: float, y: float) -> int | None:
+        """Get the pixel index for a given location."""
+        pixels_mask = self.pixels_mask
+        h, w = pixels_mask.shape
+        if w >= x < 0 or h <= y < 0:
+            raise ValueError(f"Incorrect coordinate provided: x={x}, y={y}; width={w}, height={h}")
+        index = pixels_mask[y, x]  # type: ignore
+        if np.isnan(index):
+            return None
+        return int(index)
 
     @property
     def xyz_coordinates(self) -> np.ndarray:
@@ -209,6 +216,11 @@ class BaseReader:
     def pixels(self) -> np.ndarray:
         """Iterable of pixels in the dataset."""
         return np.arange(self.n_pixels)
+
+    @cached_property
+    def pixels_mask(self) -> np.ndarray:
+        """Image of the pixels in the dataset."""
+        return self.reshape(self.pixels, fill_value=np.nan)
 
     @property
     def n_pixels(self) -> int:
