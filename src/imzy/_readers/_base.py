@@ -173,6 +173,10 @@ class BaseReader:
 
     def index_to_xy_coordinates(self, index: int) -> tuple[int, int]:
         """Convert index to x, y coordinates."""
+        return self.get_location_for_index(index)
+
+    def get_location_for_index(self, index: int) -> tuple[int, int]:
+        """Get the x, y coordinates for a given pixel index."""
         return self.x_coordinates[index], self.y_coordinates[index]
 
     def xy_coordinates_to_index(self, x: int, y: int) -> int | None:
