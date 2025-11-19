@@ -72,7 +72,7 @@ class BaseReader:
 
     @property
     def rois(self) -> list[int]:
-        """Return list of ROIs."""
+        """Return a list of ROIs."""
         raise NotImplementedError("Must implement method")
 
     @property
