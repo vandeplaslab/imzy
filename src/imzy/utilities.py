@@ -26,8 +26,10 @@ def get_rois_from_bruker_d(path: PathLike) -> list[int]:
     if path.suffix == ".d":
         if (path / "analysis.tdf").exists():
             path = path / "analysis.tdf"
-        else:
+        elif (path / "analysis.tsf").exists():
             path = path / "analysis.tsf"
+        else:
+            path = path / "peaks.sqlite"
     if not path.exists():
         raise FileNotFoundError(f"File not found: {path}")
 
@@ -35,7 +37,11 @@ def get_rois_from_bruker_d(path: PathLike) -> list[int]:
     conn = sqlite3.connect(path)
     cursor = conn.cursor()
     # cursor.execute("SELECT RegionNumber FROM MaldiFrameInfo ORDER BY RegionNumber DESC LIMIT 1")
-    cursor.execute("SELECT RegionNumber FROM MaldiFrameInfo ORDER BY ROWID DESC LIMIT 1")
+    try:
+        cursor.execute("SELECT RegionNumber FROM MaldiFrameInfo ORDER BY ROWID DESC LIMIT 1")
+    except sqlite3.OperationalError:
+        cursor.execute("SELECT RegionNumber FROM Spectra ORDER BY ROWID DESC LIMIT 1")
+
     last_roi = cursor.fetchone()[0]
     cursor.close()
     conn.close()
