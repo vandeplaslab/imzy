@@ -6,7 +6,7 @@ MassLynx Python SDK.
 import ctypes
 from ctypes import POINTER, c_bool, c_char, c_char_p, c_float, c_int, c_void_p, cast
 
-from imzy._readers.waters.MassLynxRawReader import MassLynxBaseType, MassLynxRawReader, DLL
+from imzy._readers.waters.MassLynxRawReader import DLL, MassLynxBaseType, MassLynxRawReader
 
 # from enum import IntEnum
 
