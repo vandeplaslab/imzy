@@ -6,7 +6,7 @@ from ctypes import POINTER, c_byte, c_float, c_int, c_void_p, cast
 
 import numpy as np
 
-from imzy._readers.waters.MassLynxRawReader import MassLynxBaseType, MassLynxRawProcessor, MassLynxRawReader, DLL
+from imzy._readers.waters.MassLynxRawReader import DLL, MassLynxBaseType, MassLynxRawProcessor, MassLynxRawReader
 
 
 class MassLynxRawScanReader(MassLynxRawReader):

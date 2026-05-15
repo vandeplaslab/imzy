@@ -1,7 +1,7 @@
 """Tests for imzml files."""
 
 import pytest
-from koyo.utilities import is_installed
+from koyo.system import is_installed
 
 from imzy import IMZMLReader, get_reader
 

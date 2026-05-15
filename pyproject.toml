@@ -13,7 +13,7 @@ include = ["src", "tests", "CHANGELOG.md"]
 name = "imzy"
 description = "imzy: A new reader interface to imzML and other imaging mass spectrometry formats."
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = { text = "BSD 3-Clause License" }
 authors = [
     { email = "lukas.migas@yahoo.com", name = "Lukasz G. Migas" },
@@ -27,7 +27,6 @@ classifiers = [
   "Programming Language :: Python",
   "Programming Language :: Python :: 3 :: Only",
   "Programming Language :: Python :: 3",
-  "Programming Language :: Python :: 3.9",
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
@@ -49,7 +48,7 @@ dependencies = [
   "tqdm",
   "natsort",
   "pluggy",
-  "koyo",
+  "koyo>=0.3.5",
   "ims-utils>=0.1.8",
   "yoki5",
 ]
@@ -98,7 +97,7 @@ repository = "https://github.com/vandeplaslab/imzy"
 # https://github.com/charliermarsh/ruff
 [tool.ruff]
 line-length = 120
-target-version = "py39"
+target-version = "py310"
 src = ["src", "tests"]
 
 # https://beta.ruff.rs/docs/rules/

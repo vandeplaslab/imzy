@@ -8,7 +8,7 @@ from ctypes import POINTER, c_char_p, c_int, c_void_p
 from enum import IntEnum
 from pathlib import Path
 
-from koyo.utilities import get_module_path
+from koyo.system import get_module_path
 
 cwd = os.getcwd()
 waters_path = os.path.dirname(get_module_path("imzy._readers.waters", "MassLynxRawReader.py"))
