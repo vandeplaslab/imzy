@@ -16,9 +16,14 @@ class NeoFlexReader(TSFReader):
     """NeoFlex reader for Bruker files."""
 
     def __init__(
-        self, path: PathLike, use_recalibrated_state: bool = False, auto_profile: bool = True, resolution: int = 30_000
+        self,
+        path: PathLike,
+        use_recalibrated_state: bool = False,
+        auto_profile: bool = True,
+        resolution: int = 30_000,
+        roi: int | None = None,
     ):
-        super().__init__(path, use_recalibrated_state, auto_profile=auto_profile)
+        super().__init__(path, use_recalibrated_state, auto_profile=auto_profile, roi=roi)
         self.resolution = resolution
 
     @property
@@ -29,7 +34,7 @@ class NeoFlexReader(TSFReader):
             max_index = self.mz_to_index(1, [self.mz_max])[0]
             mz_index = np.arange(0, int(np.round(max_index)))[int(np.round(min_index)) :]
             return mz_index
-        bruker_mz_max = self.read_profile_spectrum(1).shape[0]
+        bruker_mz_max = self.read_profile_spectrum(0).shape[0]
         return np.arange(0, bruker_mz_max)
 
     def _read_spectrum(self, frame_id: int) -> tuple[np.ndarray, np.ndarray]:

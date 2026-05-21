@@ -46,6 +46,7 @@ def create_centroids_zarr(
     tol: ty.Optional[float] = None,
     ppm: ty.Optional[float] = None,
     ys: ty.Optional[np.ndarray] = None,
+    reader_kwargs: ty.Optional[dict[str, ty.Any]] = None,
 ):
     """Create group with datasets inside."""
     import zarr
@@ -53,7 +54,7 @@ def create_centroids_zarr(
     if tol is None and ppm is None:
         raise ValueError("Either `tol` or `ppm` should be specified.")
 
-    reader = get_reader(input_dir)
+    reader = get_reader(input_dir, **(reader_kwargs or {}))
     store = zarr.DirectoryStore(str(zarr_path))
     group = zarr.group(store=store)
     # add metadata
@@ -88,11 +89,12 @@ def extract_centroids_zarr(
     mzs_max: np.ndarray,
     silent: bool = False,
     sync_path: ty.Optional[str] = None,
+    reader_kwargs: ty.Optional[dict[str, ty.Any]] = None,
 ):
     """Extract peaks for particular subset of frames."""
     import zarr
 
-    reader = get_reader(input_dir)
+    reader = get_reader(input_dir, **(reader_kwargs or {}))
     synchronizer = zarr.ProcessSynchronizer(sync_path) if sync_path is not None else None
     ds = zarr.open(str(zarr_path), mode="a", synchronizer=synchronizer)
     chunk_size = ds.chunks[0]
@@ -122,6 +124,7 @@ def rechunk_zarr_array(
     target_path: PathLike,
     chunk_size: ty.Optional[tuple[int, int]] = None,
     silent: bool = False,
+    reader_kwargs: ty.Optional[dict[str, ty.Any]] = None,
 ):
     """Re-chunk zarr array to more optional format.
 
@@ -132,7 +135,7 @@ def rechunk_zarr_array(
     from dask.diagnostics import ProgressBar
     from rechunker import rechunk
 
-    mobj = get_reader(input_dir)
+    mobj = get_reader(input_dir, **(reader_kwargs or {}))
     ds = zarr.open(str(zarr_path), mode="r")
     temp_path = str(Path(zarr_path) / "intermediate")
 
@@ -184,6 +187,7 @@ def create_centroids_hdf5(
     ys: ty.Optional[np.ndarray] = None,
     chunk_info: ty.Optional[dict[int, np.ndarray]] = None,
     spatial_info: ty.Optional[SpatialInfo] = None,
+    reader_kwargs: ty.Optional[dict[str, ty.Any]] = None,
 ) -> Path:
     """Create group with datasets inside."""
     from imzy._centroids import H5CentroidsStore
@@ -191,7 +195,7 @@ def create_centroids_hdf5(
     if tol is None and ppm is None:
         raise ValueError("Either `tol` or `ppm` should be specified.")
 
-    reader = get_reader(input_dir)
+    reader = get_reader(input_dir, **(reader_kwargs or {}))
     n_pixels = reader.n_pixels
     array_shape = (n_pixels, n_peaks)
 
@@ -256,11 +260,12 @@ def extract_centroids_hdf5(
     mzs_min: np.ndarray,
     mzs_max: np.ndarray,
     silent: bool = False,
+    reader_kwargs: ty.Optional[dict[str, ty.Any]] = None,
 ):
     """Extract peaks for particular subset of frames."""
     from imzy._centroids import H5CentroidsStore
 
-    reader = get_reader(input_dir)
+    reader = get_reader(input_dir, **(reader_kwargs or {}))
     store = H5CentroidsStore(hdf_path, mode="a")
 
     # profile-mode data is easier to handle so we can create mask once and then use the same mask for every pixel
