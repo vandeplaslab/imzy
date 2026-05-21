@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: astral-sh/setup-uv@v7
+      - uses: astral-sh/setup-uv@v8.1.0
       - run: uvx check-manifest
 
   test:
@@ -41,7 +41,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: astral-sh/setup-uv@v7
+      - uses: astral-sh/setup-uv@v8.1.0
         with:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
@@ -67,15 +67,50 @@ jobs:
           filename: .github/TEST_FAIL_TEMPLATE.md
           update_existing: true
 
-      - name: Coverage
-        uses: codecov/codecov-action@v5
+      - name: Upload coverage
+        uses: actions/upload-artifact@v7
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
+          name: covreport-${{ matrix.os }}-py${{ matrix.python-version }}-${{ matrix.backend }}
+          path: ./.coverage*
+          include-hidden-files: true
 
+  coverage:
+    name: Combine and Upload Coverage
+    needs: test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - run: uv sync --no-dev --group test
+
+      - name: Download coverage artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: covreport-*
+          path: coverage-artifacts
+          merge-multiple: false
+
+      - name: Combine coverage data
+        run: |
+          find coverage-artifacts -name '.coverage*' -type f -exec cp {} . \;
+          uv run coverage combine
+          uv run coverage xml -o coverage.xml
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v6
+        with:
+          files: coverage.xml
+          fail_ci_if_error: true
+          token: ${{ secrets.CODECOV_TOKEN }}
 
   deploy_testpypi:
     name: Deploy to TestPyPI
-    needs: [test, check-manifest]
+    needs: [check-manifest, test]
     if: success() && startsWith(github.ref, 'refs/tags/') && github.event_name != 'schedule'
     runs-on: ubuntu-latest
     permissions:
@@ -87,7 +122,7 @@ jobs:
           fetch-depth: 0
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.x"
 
@@ -104,19 +139,19 @@ jobs:
 
   deploy_pypi:
     name: Deploy to PyPI
-    needs: [test, check-manifest, deploy_testpypi]
+    needs: [check-manifest, test, deploy_testpypi]
     if: success() && startsWith(github.ref, 'refs/tags/') && github.event_name != 'schedule'
     runs-on: ubuntu-latest
     permissions:
       id-token: write
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.x"
 
@@ -139,12 +174,12 @@ jobs:
       id-token: write
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.x"
 
