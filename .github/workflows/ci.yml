@@ -53,20 +53,6 @@ jobs:
           NUMBA_DISABLE_JIT: ${{ matrix.os == 'ubuntu-latest' && '1' || '0' }}
         run: uv run coverage run -p -m pytest -v --color=yes
 
-      # If something goes wrong, we can open an issue in the repo
-      - name: Report --pre Failures
-        if: failure() && github.event_name == 'schedule'
-        uses: JasonEtco/create-an-issue@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PLATFORM: ${{ matrix.os }}
-          PYTHON: ${{ matrix.python-version }}
-          RUN_ID: ${{ github.run_id }}
-          TITLE: '[test-bot] pip install --pre is failing'
-        with:
-          filename: .github/TEST_FAIL_TEMPLATE.md
-          update_existing: true
-
       - name: Upload coverage
         uses: actions/upload-artifact@v7
         with:
