@@ -31,7 +31,8 @@ class BrukerBaseReader(BaseReader):
     _dll_index_to_mz_func: ty.Callable
     _dll_mz_to_index_func: ty.Callable
 
-    def __init__(self, path: PathLike, auto_profile: bool = True):
+    def __init__(self, path: PathLike, auto_profile: bool = True, roi: int | None = None):
+        self.roi = roi
         super().__init__(path, auto_profile=auto_profile)
         self._init()
 
@@ -39,7 +40,7 @@ class BrukerBaseReader(BaseReader):
         """Method which is called to initialize the reader."""
         assert (self.path / self.sql_filename).exists(), f"Could not find {self.sql_filename} file."
         self._mz_min, self._mz_max = self.get_acquisition_mass_range()
-        self.set_region_information()
+        self.set_region_information(self.roi)
 
     @property
     def mz_min(self) -> float:
@@ -57,6 +58,23 @@ class BrukerBaseReader(BaseReader):
         if self._rois is None:
             self._rois = np.unique(self.region_number).tolist()
         return self._rois
+
+    def get_n_pixels_for_roi(self, roi: int) -> int:
+        """Return the number of pixels needed to get a ROI."""
+        mask = self.region_number_all == roi
+        return np.count_nonzero(mask)
+
+    def get_pixels_for_roi(self, roi: int) -> np.ndarray:
+        """Return the pixels needed to get a ROI."""
+        if self.roi not in [None, "None"]:
+            return self.pixels if roi == self.roi else np.asarray([], dtype=int)
+        return np.where(self.region_number_all == roi)[0]
+
+    def _get_reader_kwargs(self) -> dict[str, ty.Any]:
+        """Return kwargs needed to re-open this reader with the same ROI selection."""
+        if self.roi in [None, "None"]:
+            return {}
+        return {"roi": self.roi}
 
     @property
     def x_pixel_size(self) -> float:
@@ -113,6 +131,12 @@ class BrukerBaseReader(BaseReader):
         for index in indices:
             yield self._read_spectrum(index)
 
+    def _frame_id_for_index(self, index: int) -> int:
+        """Return raw Bruker frame ID for a logical pixel index."""
+        if index < 0 or index >= self.n_pixels:
+            raise IndexError(f"Pixel index {index} is out of bounds for {self.n_pixels} pixels.")
+        return int(self.frame_indices[index])
+
     def __enter__(self) -> BrukerBaseReader:
         return self
 
@@ -162,7 +186,7 @@ class BrukerBaseReader(BaseReader):
     @property
     def mz_index(self) -> np.ndarray:
         """Return index."""
-        bruker_mz_max = self.read_profile_spectrum(1).shape[0]
+        bruker_mz_max = self.read_profile_spectrum(0).shape[0]
         return np.arange(0, bruker_mz_max)
 
     @property
@@ -222,26 +246,32 @@ class BrukerBaseReader(BaseReader):
             self._write_cache("frame_index_cache", data={"frame_index_position": frame_index_position})
 
         # get ROI
-        self.region_number = frame_index_position[:, 3]
-        self.region_frames = np.arange(0, len(self.region_number))
-        if self.region_number.size > 0:
-            self._rois = np.arange(0, self.region_number[-1] + 1).tolist()
+        self.region_number_all = frame_index_position[:, 3]
+        self.region_frames = np.arange(0, len(self.region_number_all))
+        self._rois = np.unique(self.region_number_all).astype(int).tolist()
 
         # select only those frames that match specific region of interest
         if roi not in [None, "None"]:
-            self.region_frames = np.where(self.region_number == roi)[0]
+            if roi not in self._rois:
+                raise ValueError(f"ROI {roi} was not found. Available ROIs: {self._rois}")
+            self.region_frames = np.where(self.region_number_all == roi)[0]
 
         # apply ROI restriction
         self.region_len = len(self.region_frames)
         self.frame_indices = frame_index_position[self.region_frames, 0]
+        self.region_number = self.region_number_all[self.region_frames]
         # self.x_coordinates_all = frame_index_position[:, 1]
         # self.y_coordinates_all = frame_index_position[:, 2]
         x_coordinates = frame_index_position[self.region_frames, 1]
-        x_min, _x_max = get_min_max(x_coordinates)
+        x_min, x_max = get_min_max(x_coordinates)
         y_coordinates = frame_index_position[self.region_frames, 2]
-        y_min, _y_max = get_min_max(y_coordinates)
+        y_min, y_max = get_min_max(y_coordinates)
         x_coordinates = x_coordinates - x_min
         y_coordinates = y_coordinates - y_min
+        self.x_min, self.x_max = get_min_max(x_coordinates)  # type: ignore[assignment]
+        self.y_min, self.y_max = get_min_max(y_coordinates)  # type: ignore[assignment]
+        self.x_min_raw, self.x_max_raw = x_min, x_max
+        self.y_min_raw, self.y_max_raw = y_min, y_max
         self._xyz_coordinates = np.column_stack((x_coordinates, y_coordinates, np.zeros_like(x_coordinates)))
 
     def get_tic(self, silent: bool = False) -> np.ndarray:
@@ -249,7 +279,7 @@ class BrukerBaseReader(BaseReader):
         if self._tic is None:
             data = self._read_cache("tic", ["tic", "region_frames"])
             if data["tic"] is not None and not isinstance(data["region_frames"], str):
-                tic = data["tic"]
+                tic = np.ravel(data["tic"])
             else:
                 with self.sql_reader() as conn:
                     try:
@@ -265,5 +295,7 @@ class BrukerBaseReader(BaseReader):
                         tic = np.array(cursor.fetchall())
                     tic = np.ravel(tic)
                 self._write_cache("tic", data={"tic": tic, "region_frames": region_frames})
+            if self.roi not in [None, "None"]:
+                tic = tic[self.region_frames]
             self._tic = tic
         return self._tic

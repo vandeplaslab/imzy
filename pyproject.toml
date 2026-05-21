@@ -169,6 +169,7 @@ exclude = [
 # https://coverage.readthedocs.io/en/6.4/config.html
 [tool.coverage.run]
 source = ["src"]
+relative_files = true
 omit = [
   "tests/*",
   "*/__init__.py",
@@ -176,6 +177,14 @@ omit = [
   "def __repr__",
   "if __name__ == .__main__.:",
   "def test",
+]
+
+[tool.coverage.paths]
+source = [
+  "src",
+  "/home/runner/work/imzy/imzy/src",
+  "/Users/runner/work/imzy/imzy/src",
+  "D:/a/imzy/imzy/src",
 ]
 
 [tool.coverage.report]

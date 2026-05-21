@@ -88,12 +88,14 @@ def _throw_last_error(dll_handle: CDLL | None) -> None:
 class TSFReader(BrukerBaseReader):
     sql_filename = "analysis.tsf"
 
-    def __init__(self, path: PathLike, use_recalibrated_state: bool = False, auto_profile: bool = True):
+    def __init__(
+        self, path: PathLike, use_recalibrated_state: bool = False, auto_profile: bool = True, roi: int | None = None
+    ):
         self.use_recalibrated_state = use_recalibrated_state
         self.buffer_size_profile = 1024  # may grow in read...Spectrum()
         self.buffer_size_centroid = 1024  # may grow in read...Spectrum()
         self._is_centroid: bool | None = None
-        super().__init__(path, auto_profile=auto_profile)
+        super().__init__(path, auto_profile=auto_profile, roi=roi)
 
     def _init(self) -> None:
         super()._init()
@@ -115,7 +117,7 @@ class TSFReader(BrukerBaseReader):
         """Determine whether the data is centroided."""
         if self._is_centroid is None:
             try:
-                self.read_profile_spectrum(1)
+                self.read_profile_spectrum(0)
                 self._is_centroid = False
             except RuntimeError:
                 self._is_centroid = True
@@ -135,15 +137,15 @@ class TSFReader(BrukerBaseReader):
     # Output: tuple of lists (m/zs, intensities)
     def read_centroid_spectrum(self, index: int) -> tuple[np.ndarray, np.ndarray]:
         """Read centroid spectrum."""
+        frame_id = self._frame_id_for_index(index)
         # buffer-growing loop
         while True:
             cnt = int(self.buffer_size_centroid)  # necessary cast to run with python 3.5
             index_buf = np.empty(shape=cnt, dtype=np.float64)
             intensity_buf = np.empty(shape=cnt, dtype=np.float32)
-            index = index + 1  # We need to add 1 to the index to match timsTOF 1-index with numpy self.pixels
             required_len = self.dll.tsf_read_line_spectrum_v2(
                 self.handle,
-                index,
+                frame_id,
                 index_buf.ctypes.data_as(POINTER(c_double)),
                 intensity_buf.ctypes.data_as(POINTER(c_float)),
                 self.buffer_size_centroid,
@@ -160,22 +162,22 @@ class TSFReader(BrukerBaseReader):
             else:
                 break
 
-        mzs = self._call_conversion_func(index, index_buf[0:required_len], self._dll_index_to_mz_func)
+        mzs = self._call_conversion_func(frame_id, index_buf[0:required_len], self._dll_index_to_mz_func)
         return mzs[0:required_len], intensity_buf[0:required_len]
 
     # Output: tuple of lists (indices, intensities, widths)
     def read_centroid_spectrum_with_width(self, index: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Read centroid spectrum."""
+        frame_id = self._frame_id_for_index(index)
         # buffer-growing loop
         while True:
             cnt = int(self.buffer_size_centroid)  # necessary cast to run with python 3.5
             index_buf = np.empty(shape=cnt, dtype=np.float64)
             intensity_buf = np.empty(shape=cnt, dtype=np.float32)
             width_buf = np.empty(shape=cnt, dtype=np.float32)
-            index = index + 1  # We need to add 1 to the index to match timsTOF 1-index with numpy self.pixels
             required_len = self.dll.tsf_read_line_spectrum_with_width_v2(
                 self.handle,
-                index,
+                frame_id,
                 index_buf.ctypes.data_as(POINTER(c_double)),
                 intensity_buf.ctypes.data_as(POINTER(c_float)),
                 width_buf.ctypes.data_as(POINTER(c_float)),
@@ -193,19 +195,20 @@ class TSFReader(BrukerBaseReader):
             else:
                 break
 
-        mzs = self._call_conversion_func(index, index_buf[0:required_len], self._dll_index_to_mz_func)
+        mzs = self._call_conversion_func(frame_id, index_buf[0:required_len], self._dll_index_to_mz_func)
         return mzs[0:required_len], intensity_buf[0:required_len], width_buf[0:required_len]
 
     # Output: intensities
     def read_profile_spectrum(self, index: int) -> np.ndarray:
         """Read profile spectrum."""
+        frame_id = self._frame_id_for_index(index)
         # buffer-growing loop
         while True:
             cnt = int(self.buffer_size_profile)  # necessary cast to run with python 3.5
             intensity_buf = np.empty(shape=cnt, dtype=np.uint32)
 
             required_len = self.dll.tsf_read_profile_spectrum_v2(
-                self.handle, index + 1, intensity_buf.ctypes.data_as(POINTER(c_uint32)), cnt
+                self.handle, frame_id, intensity_buf.ctypes.data_as(POINTER(c_uint32)), cnt
             )
 
             if required_len < 0:

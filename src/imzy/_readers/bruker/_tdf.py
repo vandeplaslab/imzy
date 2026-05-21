@@ -172,11 +172,12 @@ class TDFReader(BrukerBaseReader):
         path: PathLike,
         use_recalibrated_state: bool = False,
         pressure_compensation_strategy: PressureStrategy = PressureStrategy.NoCompensation,
+        roi: int | None = None,
     ):
         self.use_recalibrated_state = use_recalibrated_state
         self.pressure_compensation_strategy = pressure_compensation_strategy
         self.buffer_size_profile = 1024  # may grow in _read_scans()
-        super().__init__(path)
+        super().__init__(path, roi=roi)
 
     def _init(self) -> None:
         super()._init()
@@ -241,7 +242,7 @@ class TDFReader(BrukerBaseReader):
 
     def read_profile_spectrum(self, index: int) -> np.ndarray:
         """Return profile spectrum."""
-        return self.read_frame(index + 1).sum(axis=1).A.flatten()
+        return self.read_frame(self._frame_id_for_index(index)).sum(axis=1).A.flatten()
 
     def _read_scan_buffer_profile(self, index: int, scan_begin: int, scan_end: int) -> np.ndarray:
         """Read a range of scans from a frame.

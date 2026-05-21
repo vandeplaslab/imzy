@@ -85,6 +85,18 @@ class BaseReader:
         """Return y pixel size in micrometers."""
         raise NotImplementedError("Must implement method")
 
+    def get_n_pixels_for_roi(self, roi: int) -> int:
+        """Return the number of pixels needed to get a ROI."""
+        return self.n_pixels
+
+    def get_pixels_for_roi(self, roi: int) -> np.ndarray:
+        """Return the pixels needed to get a ROI."""
+        return self.pixels
+
+    def _get_reader_kwargs(self) -> dict[str, ty.Any]:
+        """Return kwargs needed to re-open this reader with the same data selection."""
+        return {}
+
     @cached_property
     def x_size(self) -> int:
         """X-axis size."""
@@ -386,6 +398,7 @@ class BaseReader:
         check_zarr()
         import dask.array as dsa
 
+        reader_kwargs = self._get_reader_kwargs()
         mzs = np.asarray(mzs)
         if mzs.size == 0:
             raise ValueError("Expect at least 1 mass to extract.")
@@ -402,6 +415,7 @@ class BaseReader:
             mzs_max=mzs_max,
             ppm=ppm,
             tol=tol,
+            reader_kwargs=reader_kwargs,
         )
         zarr_array_path = str(zarr_path / ds.path)
         extract_centroids_zarr(
@@ -411,6 +425,7 @@ class BaseReader:
             mzs_max=mzs_max,
             indices=self.pixels,
             silent=silent,
+            reader_kwargs=reader_kwargs,
         )
 
         ds = dsa.from_zarr(zarr_array_path)
@@ -422,10 +437,11 @@ class BaseReader:
             ys=np.asarray(ys),
             ppm=ppm,
             tol=tol,
+            reader_kwargs=reader_kwargs,
         )
 
         target_path = str(zarr_path / "array")
-        rechunk_zarr_array(self.path, zarr_array_path, target_path, chunk_size=chunk_size)
+        rechunk_zarr_array(self.path, zarr_array_path, target_path, chunk_size=chunk_size, reader_kwargs=reader_kwargs)
         return zarr_path
 
     def to_hdf5(
@@ -446,6 +462,7 @@ class BaseReader:
             raise ValueError("Only flat images are supported at the moment.")
         check_hdf5()
 
+        reader_kwargs = self._get_reader_kwargs()
         mzs = np.asarray(mzs)
         if mzs.size == 0:
             raise ValueError("Expect at least 1 mass to extract.")
@@ -481,6 +498,7 @@ class BaseReader:
                 "image_shape": np.asarray(self.image_shape),
                 "pixel_size": self.pixel_size,
             },
+            reader_kwargs=reader_kwargs,
         )
         extract_centroids_hdf5(
             input_dir=self.path,
@@ -489,6 +507,7 @@ class BaseReader:
             mzs_max=mzs_max,
             indices=self.pixels,
             silent=silent,
+            reader_kwargs=reader_kwargs,
         )
         return hdf_path
 
