@@ -1,9 +1,14 @@
 """Tests for imzml files."""
 
+import sys
+from pathlib import Path
+
+import numpy as np
 import pytest
 from koyo.system import is_installed
 
 from imzy import IMZMLReader, get_reader
+from imzy._readers.imzml._imzml import choose_iterparse, init_metadata
 
 from .utilities import get_imzml_data
 
@@ -60,6 +65,40 @@ def test_init(path):
     assert mz_min != mz_max
     mz_x, mz_y = reader.get_summed_spectrum(reader.pixels)
     assert mz_x.shape == mz_y.shape
+
+
+@pytest.mark.parametrize("path", get_imzml_data())
+def test_init_metadata_elementtree(path: Path) -> None:
+    root, mz_precision, int_precision, byte_offsets, coordinates = init_metadata(path, parse_lib="ElementTree")
+
+    assert root is not None
+    assert mz_precision in {"f", "d", "i", "l"}
+    assert int_precision in {"f", "d", "i", "l"}
+    assert byte_offsets.shape[1] == 4
+    assert coordinates.shape[1] == 3
+    assert byte_offsets.shape[0] == coordinates.shape[0]
+
+
+@pytest.mark.skipif(not is_installed("lxml"), reason="lxml not installed")
+@pytest.mark.parametrize("path", get_imzml_data())
+def test_init_metadata_lxml_matches_elementtree(path: Path) -> None:
+    _, et_mz_precision, et_int_precision, et_byte_offsets, et_coordinates = init_metadata(
+        path, parse_lib="ElementTree"
+    )
+    _, lxml_mz_precision, lxml_int_precision, lxml_byte_offsets, lxml_coordinates = init_metadata(
+        path, parse_lib="lxml"
+    )
+
+    assert lxml_mz_precision == et_mz_precision
+    assert lxml_int_precision == et_int_precision
+    np.testing.assert_array_equal(lxml_byte_offsets, et_byte_offsets)
+    np.testing.assert_array_equal(lxml_coordinates, et_coordinates)
+
+
+def test_choose_iterparse_defaults_to_elementtree_on_windows(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sys, "platform", "win32")
+
+    assert choose_iterparse().__module__ == "xml.etree.ElementTree"
 
 
 @pytest.mark.skipif(

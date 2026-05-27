@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 import typing as ty
 from pathlib import Path
 from warnings import warn
@@ -71,18 +72,19 @@ class IMZMLReader(BaseReader):
         resolution: int = 50_000,  # this is a pure guess and should match the instrument
         mz_min: float | None = None,
         mz_max: float | None = None,
-    ):
+        parse_lib: str | None = None,
+    ) -> None:
         super().__init__(path, auto_profile=auto_profile)
         self._mz_min = mz_min
         self._mz_max = mz_max
-        self._init(ibd_path)
+        self._init(ibd_path, parse_lib=parse_lib)
         self.resolution = resolution
         self.mz_ppm = _auto_guess_ppm(self.resolution, mz_ppm)
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}<{self.path}; centroid={self.is_centroid}>"
 
-    def _init(self, ibd_path: PathLike | None = None) -> None:
+    def _init(self, ibd_path: PathLike | None = None, parse_lib: str | None = None) -> None:
         """Initialize metadata."""
         _, self._ibd_path, self._icache_path = infer_path(self.path, ibd_path)
         if self._icache_path and self._icache_path.exists():
@@ -92,7 +94,7 @@ class IMZMLReader(BaseReader):
             self._imzml_cache = IMZMLCache.from_cache(self._icache_path)
         else:
             root, self.mz_precision, self.int_precision, self.byte_offsets, self._xyz_coordinates = init_metadata(
-                self.path
+                self.path, parse_lib=parse_lib
             )
             self._icache_path = self.path.with_suffix(".icache")
             metadata = read_imzml_metadata(root)
@@ -406,7 +408,11 @@ def read_imzml_metadata(root, sl: str = "{http://psi.hupo.org/ms/mzml}"):
     return metadata_dict
 
 
-def init_metadata(path: Path, parse_lib: str | None = None, sl: str = "{http://psi.hupo.org/ms/mzml}"):
+def init_metadata(
+    path: Path,
+    parse_lib: str | None = None,
+    sl: str = "{http://psi.hupo.org/ms/mzml}",
+) -> tuple[ty.Any, str, str, np.ndarray, np.ndarray]:
     """Method to initialize formats, coordinates and offsets from the imzML file format.
 
     This method should only be called by __init__. Reads the data formats, coordinates and offsets from
@@ -538,7 +544,7 @@ class CoordinateIndices:
 
 def choose_iterparse(parse_lib: str | None = None) -> ty.Callable:
     """Choose iterparse."""
-    if parse_lib == "ElementTree":
+    if parse_lib == "ElementTree" or (parse_lib is None and sys.platform == "win32"):
         from xml.etree.ElementTree import iterparse
     elif parse_lib == "lxml":
         try:
