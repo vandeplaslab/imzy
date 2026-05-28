@@ -21,7 +21,10 @@ PRECISION_DICT = {"32-bit float": "f", "64-bit float": "d", "32-bit integer": "i
 SIZE_DICT = {"f": 4, "d": 8, "i": 4, "l": 8}
 SPECTRUM_MODE_CENTROID = "centroid"
 SPECTRUM_MODE_PROFILE = "profile"
+LOWEST_OBSERVED_MZ_ACCESSION = "MS:1000528"
+HIGHEST_OBSERVED_MZ_ACCESSION = "MS:1000527"
 SpectrumMode = ty.Literal["centroid", "profile"]
+MzRange: ty.TypeAlias = tuple[float, float]
 
 
 class IMZMLCache:
@@ -102,13 +105,16 @@ class IMZMLReader(BaseReader):
                 mz_max,
                 self._spectrum_mode,
             ) = read_icache(self._icache_path)
-            if self._mz_min is None:
-                self._mz_min = mz_min
-            if self._mz_max is None:
-                self._mz_max = mz_max
             cache_needs_upgrade = mz_min is None or mz_max is None or self._spectrum_mode is None
-            if self._spectrum_mode is None:
-                self._spectrum_mode = init_spectrum_mode(self.path, parse_lib=parse_lib)
+            xml_mz_min, xml_mz_max = None, None
+            if cache_needs_upgrade:
+                self._spectrum_mode, xml_mz_min, xml_mz_max = init_spectrum_metadata(
+                    self.path,
+                    parse_lib=parse_lib,
+                    fallback_spectrum_mode=self._spectrum_mode,
+                )
+            self._apply_mass_range(mz_min, mz_max)
+            self._apply_centroid_xml_mass_range(xml_mz_min, xml_mz_max)
             self._imzml_cache = IMZMLCache.from_cache(self._icache_path)
         else:
             (
@@ -118,7 +124,10 @@ class IMZMLReader(BaseReader):
                 self.byte_offsets,
                 self._xyz_coordinates,
                 self._spectrum_mode,
+                xml_mz_min,
+                xml_mz_max,
             ) = init_metadata(self.path, parse_lib=parse_lib)
+            self._apply_centroid_xml_mass_range(xml_mz_min, xml_mz_max)
             self._icache_path = self.path.with_suffix(".icache")
             metadata = read_imzml_metadata(root)
             self._imzml_cache = IMZMLCache(metadata)
@@ -143,6 +152,19 @@ class IMZMLReader(BaseReader):
             write_icache(self, self._icache_path)
         except OSError as error:  # in case there is no space or can't write?
             print(error)
+
+    def _apply_mass_range(self, mz_min: float | None, mz_max: float | None) -> None:
+        """Apply cached mass bounds without overriding explicit constructor values."""
+        if self._mz_min is None:
+            self._mz_min = mz_min
+        if self._mz_max is None:
+            self._mz_max = mz_max
+
+    def _apply_centroid_xml_mass_range(self, mz_min: float | None, mz_max: float | None) -> None:
+        """Apply complete XML observed bounds for centroid data."""
+        if self._spectrum_mode != SPECTRUM_MODE_CENTROID or mz_min is None or mz_max is None:
+            return
+        self._apply_mass_range(mz_min, mz_max)
 
     @property
     def mz_ppm(self) -> float:
@@ -462,7 +484,7 @@ def init_metadata(
     path: Path,
     parse_lib: str | None = None,
     sl: str = "{http://psi.hupo.org/ms/mzml}",
-) -> tuple[ty.Any, str, str, np.ndarray, np.ndarray, SpectrumMode | None]:
+) -> tuple[ty.Any, str, str, np.ndarray, np.ndarray, SpectrumMode | None, float | None, float | None]:
     """Method to initialize formats, coordinates and offsets from the imzML file format.
 
     This method should only be called by __init__. Reads the data formats, coordinates and offsets from
@@ -483,6 +505,7 @@ def init_metadata(
 
     offsets = []
     spectrum_modes: list[SpectrumMode] = []
+    spectrum_mz_ranges: list[MzRange | None] = []
     spectrum_list_tag = sl + "spectrumList"
     spectrum_tag = sl + "spectrum"
     referenceable_group_tag = sl + "referenceableParamGroup"
@@ -496,6 +519,7 @@ def init_metadata(
         if elem.tag in mode_tags:
             append_spectrum_mode(spectrum_modes, elem, sl=sl)
         if elem.tag == spectrum_tag:
+            spectrum_mz_ranges.append(get_observed_mz_range(elem, sl=sl))
             offsets.append(process_spectrum(elem, mz_group_id, int_group_id))
             temp.remove(elem)
         elif elem.tag == referenceable_group_tag:
@@ -513,15 +537,26 @@ def init_metadata(
     offsets = np.array(offsets, dtype=np.int64)
     byte_offsets = offsets[:, 0:4]
     coordinates = offsets[:, 4::]
-    return root, mz_precision, int_precision, byte_offsets, coordinates, resolve_spectrum_mode(spectrum_modes)
+    mz_min, mz_max = resolve_observed_mz_range(spectrum_mz_ranges)
+    return (
+        root,
+        mz_precision,
+        int_precision,
+        byte_offsets,
+        coordinates,
+        resolve_spectrum_mode(spectrum_modes),
+        mz_min,
+        mz_max,
+    )
 
 
-def init_spectrum_mode(
+def init_spectrum_metadata(
     path: Path,
     parse_lib: str | None = None,
     sl: str = "{http://psi.hupo.org/ms/mzml}",
-) -> SpectrumMode | None:
-    """Read the spectrum mode from imzML cvParams without reading binary data."""
+    fallback_spectrum_mode: SpectrumMode | None = None,
+) -> tuple[SpectrumMode | None, float | None, float | None]:
+    """Read spectrum mode and complete observed m/z bounds from imzML XML."""
     iterparse = choose_iterparse(parse_lib)
     elem_iterator = iterparse(str(path), events=("start", "end"))
 
@@ -529,6 +564,7 @@ def init_spectrum_mode(
     next(elem_iterator)
 
     spectrum_modes: list[SpectrumMode] = []
+    spectrum_mz_ranges: list[MzRange | None] = []
     spectrum_list_tag = sl + "spectrumList"
     mode_tags = {sl + "fileContent", sl + "referenceableParamGroup", sl + "spectrum"}
     for event, elem in elem_iterator:
@@ -540,9 +576,22 @@ def init_spectrum_mode(
         if elem.tag in mode_tags:
             append_spectrum_mode(spectrum_modes, elem, sl=sl)
         if elem.tag == sl + "spectrum":
+            spectrum_mz_ranges.append(get_observed_mz_range(elem, sl=sl))
             if temp is not None:
                 temp.remove(elem)
-    return resolve_spectrum_mode(spectrum_modes)
+    spectrum_mode = resolve_spectrum_mode(spectrum_modes) or fallback_spectrum_mode
+    mz_min, mz_max = resolve_observed_mz_range(spectrum_mz_ranges)
+    return spectrum_mode, mz_min, mz_max
+
+
+def init_spectrum_mode(
+    path: Path,
+    parse_lib: str | None = None,
+    sl: str = "{http://psi.hupo.org/ms/mzml}",
+) -> SpectrumMode | None:
+    """Read the spectrum mode from imzML cvParams without reading binary data."""
+    spectrum_mode, _, _ = init_spectrum_metadata(path, parse_lib=parse_lib, sl=sl)
+    return spectrum_mode
 
 
 def append_spectrum_mode(spectrum_modes: list[SpectrumMode], elem: ty.Any, sl: str) -> None:
@@ -559,6 +608,30 @@ def get_spectrum_mode(elem: ty.Any, sl: str = "{http://psi.hupo.org/ms/mzml}") -
     if elem.find(f'{sl}cvParam[@accession="MS:1000128"]') is not None:
         return SPECTRUM_MODE_PROFILE
     return None
+
+
+def get_observed_mz_range(elem: ty.Any, sl: str = "{http://psi.hupo.org/ms/mzml}") -> MzRange | None:
+    """Return the per-spectrum observed m/z range when it is complete and valid."""
+    lowest_node = elem.find(f'{sl}cvParam[@accession="{LOWEST_OBSERVED_MZ_ACCESSION}"]')
+    highest_node = elem.find(f'{sl}cvParam[@accession="{HIGHEST_OBSERVED_MZ_ACCESSION}"]')
+    if lowest_node is None or highest_node is None:
+        return None
+    try:
+        mz_min = float(lowest_node.attrib["value"])
+        mz_max = float(highest_node.attrib["value"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if not np.isfinite(mz_min) or not np.isfinite(mz_max) or mz_min > mz_max:
+        return None
+    return mz_min, mz_max
+
+
+def resolve_observed_mz_range(spectrum_mz_ranges: list[MzRange | None]) -> tuple[float | None, float | None]:
+    """Return global XML observed m/z bounds only when every spectrum declares valid bounds."""
+    if not spectrum_mz_ranges or any(mz_range is None for mz_range in spectrum_mz_ranges):
+        return None, None
+    mz_ranges = ty.cast(list[MzRange], spectrum_mz_ranges)
+    return min(mz_range[0] for mz_range in mz_ranges), max(mz_range[1] for mz_range in mz_ranges)
 
 
 def resolve_spectrum_mode(spectrum_modes: list[SpectrumMode]) -> SpectrumMode | None:
