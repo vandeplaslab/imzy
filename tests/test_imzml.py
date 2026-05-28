@@ -1,5 +1,6 @@
 """Tests for imzml files."""
 
+import shutil
 import sys
 from pathlib import Path
 
@@ -8,13 +9,30 @@ import pytest
 from koyo.system import is_installed
 
 from imzy import IMZMLReader, get_reader
-from imzy._readers.imzml._imzml import choose_iterparse, init_metadata
+from imzy._readers.imzml._imzml import (
+    SPECTRUM_MODE_CENTROID,
+    SPECTRUM_MODE_PROFILE,
+    choose_iterparse,
+    init_metadata,
+)
 
 from .utilities import get_imzml_data
 
 
+def _copy_imzml_dataset(path: Path, tmp_path: Path, *, copy_cache: bool = True) -> Path:
+    """Copy an imzML dataset to a temporary directory for cache-writing tests."""
+    imzml_path = tmp_path / path.name
+    shutil.copyfile(path, imzml_path)
+    shutil.copyfile(path.with_suffix(".ibd"), imzml_path.with_suffix(".ibd"))
+    cache_path = path.with_suffix(".icache")
+    if copy_cache and cache_path.exists():
+        shutil.copyfile(cache_path, imzml_path.with_suffix(".icache"))
+    return imzml_path
+
+
 @pytest.mark.parametrize("path", get_imzml_data())
-def test_init(path):
+def test_init(path, tmp_path):
+    path = _copy_imzml_dataset(path, tmp_path)
     reader = get_reader(path)
     assert isinstance(reader, IMZMLReader)
     assert reader.n_pixels > 0
@@ -69,7 +87,9 @@ def test_init(path):
 
 @pytest.mark.parametrize("path", get_imzml_data())
 def test_init_metadata_elementtree(path: Path) -> None:
-    root, mz_precision, int_precision, byte_offsets, coordinates = init_metadata(path, parse_lib="ElementTree")
+    root, mz_precision, int_precision, byte_offsets, coordinates, spectrum_mode = init_metadata(
+        path, parse_lib="ElementTree"
+    )
 
     assert root is not None
     assert mz_precision in {"f", "d", "i", "l"}
@@ -77,15 +97,16 @@ def test_init_metadata_elementtree(path: Path) -> None:
     assert byte_offsets.shape[1] == 4
     assert coordinates.shape[1] == 3
     assert byte_offsets.shape[0] == coordinates.shape[0]
+    assert spectrum_mode in {SPECTRUM_MODE_CENTROID, SPECTRUM_MODE_PROFILE}
 
 
 @pytest.mark.skipif(not is_installed("lxml"), reason="lxml not installed")
 @pytest.mark.parametrize("path", get_imzml_data())
 def test_init_metadata_lxml_matches_elementtree(path: Path) -> None:
-    _, et_mz_precision, et_int_precision, et_byte_offsets, et_coordinates = init_metadata(
+    _, et_mz_precision, et_int_precision, et_byte_offsets, et_coordinates, et_spectrum_mode = init_metadata(
         path, parse_lib="ElementTree"
     )
-    _, lxml_mz_precision, lxml_int_precision, lxml_byte_offsets, lxml_coordinates = init_metadata(
+    _, lxml_mz_precision, lxml_int_precision, lxml_byte_offsets, lxml_coordinates, lxml_spectrum_mode = init_metadata(
         path, parse_lib="lxml"
     )
 
@@ -93,6 +114,61 @@ def test_init_metadata_lxml_matches_elementtree(path: Path) -> None:
     assert lxml_int_precision == et_int_precision
     np.testing.assert_array_equal(lxml_byte_offsets, et_byte_offsets)
     np.testing.assert_array_equal(lxml_coordinates, et_coordinates)
+    assert lxml_spectrum_mode == et_spectrum_mode
+
+
+@pytest.mark.parametrize(
+    ("filename", "expected_mode", "expected_centroid"),
+    [
+        ("simple_imzml.imzML", SPECTRUM_MODE_CENTROID, True),
+        ("Example_Processed.imzML", SPECTRUM_MODE_PROFILE, False),
+        ("Example_Continuous.imzML", SPECTRUM_MODE_PROFILE, False),
+    ],
+)
+def test_imzml_spectrum_mode_uses_cvparams(
+    filename: str,
+    expected_mode: str,
+    expected_centroid: bool,
+    tmp_path: Path,
+) -> None:
+    """Test that centroid/profile mode is read from imzML cvParams."""
+    path = _copy_imzml_dataset(Path(__file__).parent / "_test_data" / filename, tmp_path)
+
+    *_, spectrum_mode = init_metadata(path, parse_lib="ElementTree")
+    reader = IMZMLReader(path, parse_lib="ElementTree")
+
+    assert spectrum_mode == expected_mode
+    assert reader.is_centroid is expected_centroid
+
+
+@pytest.mark.parametrize("copy_cache", [False, True])
+def test_centroid_imzml_repeated_readers_have_stable_axis(tmp_path: Path, copy_cache: bool) -> None:
+    """Test that centroid imzML readers derive identical exact m/z axes."""
+    path = _copy_imzml_dataset(
+        Path(__file__).parent / "_test_data" / "simple_imzml.imzML",
+        tmp_path,
+        copy_cache=copy_cache,
+    )
+    if copy_cache:
+        with np.load(path.with_suffix(".icache")) as f_ptr:
+            assert "mz_min" not in f_ptr.files
+            assert "mz_max" not in f_ptr.files
+            assert "spectrum_mode" not in f_ptr.files
+
+    first = IMZMLReader(path, parse_lib="ElementTree")
+    first_mz_min = first.mz_min
+    first_mz_max = first.mz_max
+    first_mz_x = first.mz_x.copy()
+
+    second = IMZMLReader(path, parse_lib="ElementTree")
+
+    assert second.mz_min == first_mz_min
+    assert second.mz_max == first_mz_max
+    np.testing.assert_array_equal(second.mz_x, first_mz_x)
+    with np.load(path.with_suffix(".icache")) as f_ptr:
+        assert float(np.asarray(f_ptr["mz_min"]).item()) == first_mz_min
+        assert float(np.asarray(f_ptr["mz_max"]).item()) == first_mz_max
+        assert str(np.asarray(f_ptr["spectrum_mode"]).item()) == SPECTRUM_MODE_CENTROID
 
 
 def test_choose_iterparse_defaults_to_elementtree_on_windows(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -106,6 +182,7 @@ def test_choose_iterparse_defaults_to_elementtree_on_windows(monkeypatch: pytest
 )
 @pytest.mark.parametrize("path", get_imzml_data())
 def test_to_zarr(path, tmp_path):
+    path = _copy_imzml_dataset(path, tmp_path)
     reader = IMZMLReader(path)
 
     mzs = [500, 550, 600, 601, 603]
@@ -119,6 +196,7 @@ def test_to_zarr(path, tmp_path):
 )
 @pytest.mark.parametrize("path", get_imzml_data())
 def test_to_h5(path, tmp_path):
+    path = _copy_imzml_dataset(path, tmp_path)
     reader = IMZMLReader(path)
 
     mzs = [500, 550, 600, 601, 603]
@@ -130,6 +208,7 @@ def test_to_h5(path, tmp_path):
 
 @pytest.mark.parametrize("path", get_imzml_data())
 def test_norms(path, tmp_path):
+    path = _copy_imzml_dataset(path, tmp_path)
     reader = IMZMLReader(path)
 
     h5_temp = tmp_path / "output"  # forgot to include .h5 extension

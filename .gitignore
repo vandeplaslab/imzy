@@ -611,3 +611,4 @@ _version.py
 *.icache/
 *.imimspy.cache
 *.zip
+uv.lock
