@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 import typing as ty
 from pathlib import Path
 from warnings import warn
@@ -18,6 +19,12 @@ from imzy.utilities import _auto_guess_ppm
 
 PRECISION_DICT = {"32-bit float": "f", "64-bit float": "d", "32-bit integer": "i", "64-bit integer": "l"}
 SIZE_DICT = {"f": 4, "d": 8, "i": 4, "l": 8}
+SPECTRUM_MODE_CENTROID = "centroid"
+SPECTRUM_MODE_PROFILE = "profile"
+LOWEST_OBSERVED_MZ_ACCESSION = "MS:1000528"
+HIGHEST_OBSERVED_MZ_ACCESSION = "MS:1000527"
+SpectrumMode = ty.Literal["centroid", "profile"]
+MzRange: ty.TypeAlias = tuple[float, float]
 
 
 class IMZMLCache:
@@ -61,6 +68,7 @@ class IMZMLReader(BaseReader):
     _icache_path: Path | None = None
     _is_centroid: bool | None = None
     _mz_grid: np.ndarray | None = None
+    _spectrum_mode: SpectrumMode | None = None
 
     def __init__(
         self,
@@ -71,29 +79,55 @@ class IMZMLReader(BaseReader):
         resolution: int = 50_000,  # this is a pure guess and should match the instrument
         mz_min: float | None = None,
         mz_max: float | None = None,
-    ):
+        parse_lib: str | None = None,
+    ) -> None:
         super().__init__(path, auto_profile=auto_profile)
         self._mz_min = mz_min
         self._mz_max = mz_max
-        self._init(ibd_path)
+        self._init(ibd_path, parse_lib=parse_lib)
         self.resolution = resolution
         self.mz_ppm = _auto_guess_ppm(self.resolution, mz_ppm)
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}<{self.path}; centroid={self.is_centroid}>"
 
-    def _init(self, ibd_path: PathLike | None = None) -> None:
+    def _init(self, ibd_path: PathLike | None = None, parse_lib: str | None = None) -> None:
         """Initialize metadata."""
         _, self._ibd_path, self._icache_path = infer_path(self.path, ibd_path)
+        cache_needs_upgrade = False
         if self._icache_path and self._icache_path.exists():
-            self.mz_precision, self.int_precision, self.byte_offsets, self._xyz_coordinates = read_icache(
-                self._icache_path
-            )
+            (
+                self.mz_precision,
+                self.int_precision,
+                self.byte_offsets,
+                self._xyz_coordinates,
+                mz_min,
+                mz_max,
+                self._spectrum_mode,
+            ) = read_icache(self._icache_path)
+            cache_needs_upgrade = mz_min is None or mz_max is None or self._spectrum_mode is None
+            xml_mz_min, xml_mz_max = None, None
+            if cache_needs_upgrade:
+                self._spectrum_mode, xml_mz_min, xml_mz_max = init_spectrum_metadata(
+                    self.path,
+                    parse_lib=parse_lib,
+                    fallback_spectrum_mode=self._spectrum_mode,
+                )
+            self._apply_mass_range(mz_min, mz_max)
+            self._apply_centroid_xml_mass_range(xml_mz_min, xml_mz_max)
             self._imzml_cache = IMZMLCache.from_cache(self._icache_path)
         else:
-            root, self.mz_precision, self.int_precision, self.byte_offsets, self._xyz_coordinates = init_metadata(
-                self.path
-            )
+            (
+                root,
+                self.mz_precision,
+                self.int_precision,
+                self.byte_offsets,
+                self._xyz_coordinates,
+                self._spectrum_mode,
+                xml_mz_min,
+                xml_mz_max,
+            ) = init_metadata(self.path, parse_lib=parse_lib)
+            self._apply_centroid_xml_mass_range(xml_mz_min, xml_mz_max)
             self._icache_path = self.path.with_suffix(".icache")
             metadata = read_imzml_metadata(root)
             self._imzml_cache = IMZMLCache(metadata)
@@ -101,10 +135,36 @@ class IMZMLReader(BaseReader):
 
         # if the cache file does not exist, write it immediately
         if not self._icache_path.exists():
-            try:
-                write_icache(self, self._icache_path)
-            except OSError as error:  # in case there is no space or can't write?
-                print(error)
+            self._write_icache_safely()
+        elif (
+            cache_needs_upgrade
+            and self._spectrum_mode is not None
+            and self._mz_min is not None
+            and self._mz_max is not None
+        ):
+            self._write_icache_safely()
+
+    def _write_icache_safely(self) -> None:
+        """Write the imzML cache when the cache path is available."""
+        if self._icache_path is None:
+            return
+        try:
+            write_icache(self, self._icache_path)
+        except OSError as error:  # in case there is no space or can't write?
+            print(error)
+
+    def _apply_mass_range(self, mz_min: float | None, mz_max: float | None) -> None:
+        """Apply cached mass bounds without overriding explicit constructor values."""
+        if self._mz_min is None:
+            self._mz_min = mz_min
+        if self._mz_max is None:
+            self._mz_max = mz_max
+
+    def _apply_centroid_xml_mass_range(self, mz_min: float | None, mz_max: float | None) -> None:
+        """Apply complete XML observed bounds for centroid data."""
+        if self._spectrum_mode != SPECTRUM_MODE_CENTROID or mz_min is None or mz_max is None:
+            return
+        self._apply_mass_range(mz_min, mz_max)
 
     @property
     def mz_ppm(self) -> float:
@@ -114,8 +174,8 @@ class IMZMLReader(BaseReader):
     @mz_ppm.setter
     def mz_ppm(self, value: float | str) -> None:
         """Set m/z ppm spacing."""
-        if self.is_centroid:
-            self._mz_ppm = float(value)
+        self._mz_ppm = float(value)
+        if self._is_centroid is not False:
             self._mz_grid = None  # reset mz grid
 
     @property
@@ -151,13 +211,18 @@ class IMZMLReader(BaseReader):
     def is_centroid(self) -> bool:
         """Flag to indicate whether data is in centroid or profile mode."""
         if self._is_centroid is None:
-            x, _ = self.get_spectrum(0)
-            for _x, _ in self._read_spectra(range(1, self.n_pixels)):
-                if _x.shape != x.shape:
-                    self._is_centroid = True
-                    break
-            if self._is_centroid is None:
+            if self._spectrum_mode == SPECTRUM_MODE_CENTROID:
+                self._is_centroid = True
+            elif self._spectrum_mode == SPECTRUM_MODE_PROFILE:
                 self._is_centroid = False
+            else:
+                x, _ = self.get_spectrum(0)
+                for _x, _ in self._read_spectra(range(1, self.n_pixels)):
+                    if _x.shape != x.shape:
+                        self._is_centroid = True
+                        break
+                if self._is_centroid is None:
+                    self._is_centroid = False
         return self._is_centroid
 
     @property
@@ -266,28 +331,37 @@ class IMZMLReader(BaseReader):
         return mz_x, mz_y
 
     def _estimate_mass_range(self) -> tuple[float, float]:
-        """Function will iterate over portion of the spectra and try to determine what is min/max m/z value."""
+        """Return the exact acquisition m/z range for the imzML file."""
         if self._mz_min is None or self._mz_max is None:
-            if self.n_pixels < 5000:
-                indices = self.pixels
+            if self.is_centroid:
+                mz_min, mz_max = self._estimate_centroid_mass_range()
             else:
-                indices = np.unique(np.random.default_rng().choice(self.pixels, 5000, replace=False))
-            mz_min, mz_max = 1e6, 0
-            with open(self.ibd_path, "rb") as f_ptr:
-                for index in indices:
-                    mz_o, mz_l, _, _ = self.byte_offsets[index]
-                    f_ptr.seek(mz_o)
-                    x = np.frombuffer(f_ptr.read(mz_l * self._mz_size), dtype=self.mz_precision)
-                    x_min, x_max = x.min(), x.max()
-                    if x_min < mz_min:
-                        mz_min = x_min
-                    if x_max > mz_max:
-                        mz_max = x_max
+                mz_x, _ = self.get_spectrum(0)
+                if mz_x.size == 0:
+                    raise ValueError("Cannot determine m/z range from an empty profile spectrum.")
+                mz_min, mz_max = float(np.min(mz_x)), float(np.max(mz_x))
             if self._mz_min is None:
-                self._mz_min = mz_min
+                self._mz_min = float(mz_min)
             if self._mz_max is None:
-                self._mz_max = mz_max
+                self._mz_max = float(mz_max)
+            self._write_icache_safely()
         return self._mz_min, self._mz_max
+
+    def _estimate_centroid_mass_range(self) -> tuple[float, float]:
+        """Scan all centroid spectra and return exact global m/z bounds."""
+        mz_min, mz_max = np.inf, -np.inf
+        with open(self.ibd_path, "rb") as f_ptr:
+            for index in self.pixels:
+                mz_o, mz_l, _, _ = self.byte_offsets[index]
+                f_ptr.seek(mz_o)
+                x = np.frombuffer(f_ptr.read(mz_l * self._mz_size), dtype=self.mz_precision)
+                if x.size == 0:
+                    continue
+                mz_min = min(mz_min, float(np.min(x)))
+                mz_max = max(mz_max, float(np.max(x)))
+        if not np.isfinite(mz_min) or not np.isfinite(mz_max):
+            raise ValueError("Cannot determine m/z range from empty centroid spectra.")
+        return float(mz_min), float(mz_max)
 
     def _read_spectrum(self, index: int) -> tuple[np.ndarray, np.ndarray]:
         with open(self.ibd_path, "rb") as f_ptr:
@@ -406,7 +480,11 @@ def read_imzml_metadata(root, sl: str = "{http://psi.hupo.org/ms/mzml}"):
     return metadata_dict
 
 
-def init_metadata(path: Path, parse_lib: str | None = None, sl: str = "{http://psi.hupo.org/ms/mzml}"):
+def init_metadata(
+    path: Path,
+    parse_lib: str | None = None,
+    sl: str = "{http://psi.hupo.org/ms/mzml}",
+) -> tuple[ty.Any, str, str, np.ndarray, np.ndarray, SpectrumMode | None, float | None, float | None]:
     """Method to initialize formats, coordinates and offsets from the imzML file format.
 
     This method should only be called by __init__. Reads the data formats, coordinates and offsets from
@@ -426,13 +504,25 @@ def init_metadata(path: Path, parse_lib: str | None = None, sl: str = "{http://p
     _, root = next(elem_iterator)
 
     offsets = []
+    spectrum_modes: list[SpectrumMode] = []
+    spectrum_mz_ranges: list[MzRange | None] = []
+    spectrum_list_tag = sl + "spectrumList"
+    spectrum_tag = sl + "spectrum"
+    referenceable_group_tag = sl + "referenceableParamGroup"
+    mode_tags = {sl + "fileContent", spectrum_tag, referenceable_group_tag}
     for event, elem in elem_iterator:
-        if elem.tag == sl + "spectrumList" and event == "start":
+        if event == "start" and elem.tag == spectrum_list_tag:
             temp = elem
-        elif elem.tag == sl + "spectrum" and event == "end":
+            continue
+        if event != "end":
+            continue
+        if elem.tag in mode_tags:
+            append_spectrum_mode(spectrum_modes, elem, sl=sl)
+        if elem.tag == spectrum_tag:
+            spectrum_mz_ranges.append(get_observed_mz_range(elem, sl=sl))
             offsets.append(process_spectrum(elem, mz_group_id, int_group_id))
             temp.remove(elem)
-        elif elem.tag == sl + "referenceableParamGroup" and event == "end":
+        elif elem.tag == referenceable_group_tag:
             for param in elem:
                 if param.attrib["name"] == "m/z array":
                     mz_group_id = elem.attrib["id"]
@@ -447,7 +537,115 @@ def init_metadata(path: Path, parse_lib: str | None = None, sl: str = "{http://p
     offsets = np.array(offsets, dtype=np.int64)
     byte_offsets = offsets[:, 0:4]
     coordinates = offsets[:, 4::]
-    return root, mz_precision, int_precision, byte_offsets, coordinates
+    mz_min, mz_max = resolve_observed_mz_range(spectrum_mz_ranges)
+    return (
+        root,
+        mz_precision,
+        int_precision,
+        byte_offsets,
+        coordinates,
+        resolve_spectrum_mode(spectrum_modes),
+        mz_min,
+        mz_max,
+    )
+
+
+def init_spectrum_metadata(
+    path: Path,
+    parse_lib: str | None = None,
+    sl: str = "{http://psi.hupo.org/ms/mzml}",
+    fallback_spectrum_mode: SpectrumMode | None = None,
+) -> tuple[SpectrumMode | None, float | None, float | None]:
+    """Read spectrum mode and complete observed m/z bounds from imzML XML."""
+    iterparse = choose_iterparse(parse_lib)
+    elem_iterator = iterparse(str(path), events=("start", "end"))
+
+    temp = None
+    next(elem_iterator)
+
+    spectrum_modes: list[SpectrumMode] = []
+    spectrum_mz_ranges: list[MzRange | None] = []
+    spectrum_list_tag = sl + "spectrumList"
+    mode_tags = {sl + "fileContent", sl + "referenceableParamGroup", sl + "spectrum"}
+    for event, elem in elem_iterator:
+        if event == "start" and elem.tag == spectrum_list_tag:
+            temp = elem
+            continue
+        if event != "end":
+            continue
+        if elem.tag in mode_tags:
+            append_spectrum_mode(spectrum_modes, elem, sl=sl)
+        if elem.tag == sl + "spectrum":
+            spectrum_mz_ranges.append(get_observed_mz_range(elem, sl=sl))
+            if temp is not None:
+                temp.remove(elem)
+    spectrum_mode = resolve_spectrum_mode(spectrum_modes) or fallback_spectrum_mode
+    mz_min, mz_max = resolve_observed_mz_range(spectrum_mz_ranges)
+    return spectrum_mode, mz_min, mz_max
+
+
+def init_spectrum_mode(
+    path: Path,
+    parse_lib: str | None = None,
+    sl: str = "{http://psi.hupo.org/ms/mzml}",
+) -> SpectrumMode | None:
+    """Read the spectrum mode from imzML cvParams without reading binary data."""
+    spectrum_mode, _, _ = init_spectrum_metadata(path, parse_lib=parse_lib, sl=sl)
+    return spectrum_mode
+
+
+def append_spectrum_mode(spectrum_modes: list[SpectrumMode], elem: ty.Any, sl: str) -> None:
+    """Append the spectrum mode from an XML element when present."""
+    spectrum_mode = get_spectrum_mode(elem, sl=sl)
+    if spectrum_mode is not None:
+        spectrum_modes.append(spectrum_mode)
+
+
+def get_spectrum_mode(elem: ty.Any, sl: str = "{http://psi.hupo.org/ms/mzml}") -> SpectrumMode | None:
+    """Return the spectrum mode encoded in imzML cvParams."""
+    if elem.find(f'{sl}cvParam[@accession="MS:1000127"]') is not None:
+        return SPECTRUM_MODE_CENTROID
+    if elem.find(f'{sl}cvParam[@accession="MS:1000128"]') is not None:
+        return SPECTRUM_MODE_PROFILE
+    return None
+
+
+def get_observed_mz_range(elem: ty.Any, sl: str = "{http://psi.hupo.org/ms/mzml}") -> MzRange | None:
+    """Return the per-spectrum observed m/z range when it is complete and valid."""
+    lowest_node = elem.find(f'{sl}cvParam[@accession="{LOWEST_OBSERVED_MZ_ACCESSION}"]')
+    highest_node = elem.find(f'{sl}cvParam[@accession="{HIGHEST_OBSERVED_MZ_ACCESSION}"]')
+    if lowest_node is None or highest_node is None:
+        return None
+    try:
+        mz_min = float(lowest_node.attrib["value"])
+        mz_max = float(highest_node.attrib["value"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if not np.isfinite(mz_min) or not np.isfinite(mz_max) or mz_min > mz_max:
+        return None
+    return mz_min, mz_max
+
+
+def resolve_observed_mz_range(spectrum_mz_ranges: list[MzRange | None]) -> tuple[float | None, float | None]:
+    """Return global XML observed m/z bounds only when every spectrum declares valid bounds."""
+    if not spectrum_mz_ranges or any(mz_range is None for mz_range in spectrum_mz_ranges):
+        return None, None
+    mz_ranges = ty.cast(list[MzRange], spectrum_mz_ranges)
+    return min(mz_range[0] for mz_range in mz_ranges), max(mz_range[1] for mz_range in mz_ranges)
+
+
+def resolve_spectrum_mode(spectrum_modes: list[SpectrumMode]) -> SpectrumMode | None:
+    """Return a single spectrum mode when all discovered spectra agree."""
+    if not spectrum_modes:
+        return None
+    modes = set(spectrum_modes)
+    if len(modes) == 1:
+        return spectrum_modes[0]
+    warn(
+        "Mixed centroid/profile spectrum modes found in imzML metadata; falling back to shape detection.",
+        stacklevel=2,
+    )
+    return None
 
 
 def fix_offsets(offsets):
@@ -538,7 +736,7 @@ class CoordinateIndices:
 
 def choose_iterparse(parse_lib: str | None = None) -> ty.Callable:
     """Choose iterparse."""
-    if parse_lib == "ElementTree":
+    if parse_lib == "ElementTree" or (parse_lib is None and sys.platform == "win32"):
         from xml.etree.ElementTree import iterparse
     elif parse_lib == "lxml":
         try:
@@ -553,18 +751,47 @@ def choose_iterparse(parse_lib: str | None = None) -> ty.Callable:
     return iterparse
 
 
-def read_icache(path: Path) -> tuple[str, str, np.ndarray, np.ndarray]:
+def read_icache(
+    path: Path,
+) -> tuple[str, str, np.ndarray, np.ndarray, float | None, float | None, SpectrumMode | None]:
     """Read icache file into memory."""
     with np.load(path) as f_ptr:
         mz_precision = str(f_ptr["mz_precision"])
         int_precision = str(f_ptr["int_precision"])
         byte_offsets = f_ptr["byte_offsets"]
         xyz_coordinates = f_ptr["xyz_coordinates"]
-    return mz_precision, int_precision, byte_offsets, xyz_coordinates
+        mz_min = _read_optional_float(f_ptr, "mz_min")
+        mz_max = _read_optional_float(f_ptr, "mz_max")
+        spectrum_mode = _read_optional_spectrum_mode(f_ptr)
+    return mz_precision, int_precision, byte_offsets, xyz_coordinates, mz_min, mz_max, spectrum_mode
+
+
+def _read_optional_float(f_ptr: ty.Any, key: str) -> float | None:
+    """Read an optional scalar float from an imzML cache."""
+    if key not in f_ptr.files:
+        return None
+    return float(np.asarray(f_ptr[key]).item())
+
+
+def _read_optional_spectrum_mode(f_ptr: ty.Any) -> SpectrumMode | None:
+    """Read an optional spectrum mode from an imzML cache."""
+    if "spectrum_mode" not in f_ptr.files:
+        return None
+    spectrum_mode = str(np.asarray(f_ptr["spectrum_mode"]).item())
+    if spectrum_mode in {SPECTRUM_MODE_CENTROID, SPECTRUM_MODE_PROFILE}:
+        return ty.cast(SpectrumMode, spectrum_mode)
+    return None
 
 
 def write_icache(obj: IMZMLReader, path: Path) -> None:
     """Write icache file to disk so next time the imzML file is being opened, it will be much, much faster."""
+    optional_metadata: dict[str, float | str] = {}
+    if obj._mz_min is not None:
+        optional_metadata["mz_min"] = float(obj._mz_min)
+    if obj._mz_max is not None:
+        optional_metadata["mz_max"] = float(obj._mz_max)
+    if obj._spectrum_mode is not None:
+        optional_metadata["spectrum_mode"] = obj._spectrum_mode
     np.savez(
         path,
         **obj._imzml_cache.to_cache(),
@@ -572,11 +799,12 @@ def write_icache(obj: IMZMLReader, path: Path) -> None:
         int_precision=obj.int_precision,
         byte_offsets=obj.byte_offsets,
         xyz_coordinates=obj.xyz_coordinates,
+        **optional_metadata,
     )
     npz_path = path.with_suffix(".icache.npz")  # need to include both extensions
     # unfortunately, numpy automatically adds the .npz extension which might not be desirable, so we might as well
     # rename it to the .icache
-    npz_path.rename(path)
+    npz_path.replace(path)
 
 
 def is_imzml(path: PathLike) -> bool:
