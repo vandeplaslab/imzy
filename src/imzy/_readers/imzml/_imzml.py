@@ -9,6 +9,7 @@ from warnings import warn
 
 import numpy as np
 from ims_utils.spectrum import get_ppm_axis
+from koyo.rand import temporary_seed
 from koyo.typing import PathLike
 from tqdm import tqdm
 
@@ -273,7 +274,9 @@ class IMZMLReader(BaseReader):
             if self.n_pixels < 5000:
                 indices = self.pixels
             else:
-                indices = np.unique(np.random.default_rng().choice(self.pixels, 5000, replace=False))
+                # to prevent different value each time reader is instantiated, we set the random seed
+                with temporary_seed(4699):
+                    indices = np.unique(np.random.default_rng().choice(self.pixels, 5000, replace=False))
             mz_min, mz_max = 1e6, 0
             with open(self.ibd_path, "rb") as f_ptr:
                 for index in indices:
