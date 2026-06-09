@@ -7,8 +7,11 @@ from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
+from koyo.system import IS_MAC
 
 from imzy.cli import main
+
+_TEST_DATA = Path(__file__).parent / "_test_data"
 
 
 def _copy_imzml_dataset(path: Path, tmp_path: Path) -> Path:
@@ -22,6 +25,13 @@ def _copy_imzml_dataset(path: Path, tmp_path: Path) -> Path:
     return imzml_path
 
 
+def _copy_directory_dataset(path: Path, tmp_path: Path) -> Path:
+    """Copy a directory dataset to a temporary path."""
+    output_path = tmp_path / path.name
+    shutil.copytree(path, output_path)
+    return output_path
+
+
 def test_cli_help_includes_convert_command() -> None:
     """Show the convert command in top-level help."""
     result = CliRunner().invoke(main, ["--help"])
@@ -31,19 +41,19 @@ def test_cli_help_includes_convert_command() -> None:
 
 
 def test_cli_rejects_invalid_normalization(tmp_path: Path) -> None:
-    """Reject normalization names outside the available registry."""
+    """Let Click reject normalization names outside the available registry."""
     input_path = tmp_path / "input.imzML"
     input_path.write_text("", encoding="utf-8")
 
     result = CliRunner().invoke(main, ["convert", str(input_path), str(tmp_path / "out"), "--normalization", "bad"])
 
     assert result.exit_code != 0
-    assert "Invalid normalization" in result.output
+    assert "Invalid value for '--normalization'" in result.output
 
 
 def test_cli_rejects_roi_for_non_bruker_input(tmp_path: Path) -> None:
     """Reject ROI selection for inputs that do not support Bruker ROI metadata."""
-    input_path = _copy_imzml_dataset(Path(__file__).parent / "_test_data" / "simple_imzml.imzML", tmp_path)
+    input_path = _copy_imzml_dataset(_TEST_DATA / "simple_imzml.imzML", tmp_path)
 
     result = CliRunner().invoke(main, ["convert", str(input_path), str(tmp_path / "out"), "--roi", "1"])
 
@@ -53,7 +63,7 @@ def test_cli_rejects_roi_for_non_bruker_input(tmp_path: Path) -> None:
 
 def test_cli_converts_imzml_to_imzml(tmp_path: Path) -> None:
     """Convert a supported input to imzML through the CLI."""
-    input_path = _copy_imzml_dataset(Path(__file__).parent / "_test_data" / "simple_imzml.imzML", tmp_path)
+    input_path = _copy_imzml_dataset(_TEST_DATA / "simple_imzml.imzML", tmp_path)
     output_path = tmp_path / "converted"
 
     result = CliRunner().invoke(main, ["convert", str(input_path), str(output_path), "--silent"])
@@ -90,4 +100,38 @@ def test_cli_passes_roi_to_bruker_reader(monkeypatch: pytest.MonkeyPatch, tmp_pa
 
     assert result.exit_code == 0
     assert calls == [{}, {"roi": 2}]
+    assert "ion mobility is not exported" in result.output
+
+
+@pytest.mark.skipif(IS_MAC, reason="Bruker reader is not supported on macOS.")
+def test_cli_converts_example_tsf_to_imzml(tmp_path: Path) -> None:
+    """Convert the Bruker TSF test dataset through the CLI."""
+    input_path = _copy_directory_dataset(_TEST_DATA / "example_tsf.d", tmp_path)
+    output_path = tmp_path / "converted_tsf"
+
+    result = CliRunner().invoke(
+        main,
+        ["convert", str(input_path), str(output_path), "--roi", "0", "--silent"],
+    )
+
+    assert result.exit_code == 0
+    assert output_path.with_suffix(".imzML").exists()
+    assert output_path.with_suffix(".ibd").exists()
+    assert "ion mobility is not exported" not in result.output
+
+
+@pytest.mark.skipif(IS_MAC, reason="Bruker reader is not supported on macOS.")
+def test_cli_converts_example_tdf_to_imzml(tmp_path: Path) -> None:
+    """Convert the Bruker TDF test dataset through the CLI."""
+    input_path = _copy_directory_dataset(_TEST_DATA / "example_tdf.d", tmp_path)
+    output_path = tmp_path / "converted_tdf"
+
+    result = CliRunner().invoke(
+        main,
+        ["convert", str(input_path), str(output_path), "--roi", "0", "--silent"],
+    )
+
+    assert result.exit_code == 0
+    assert output_path.with_suffix(".imzML").exists()
+    assert output_path.with_suffix(".ibd").exists()
     assert "ion mobility is not exported" in result.output

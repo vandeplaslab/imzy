@@ -11,7 +11,6 @@ import imzy
 from imzy._normalizations._extract import get_normalizations
 from imzy._readers._base import BaseReader
 from imzy._writers._imzml import IBD_MODE_AUTO, ON_ERROR_ERROR, SPECTRUM_TYPE_AUTO, IbdMode, OnError, SpectrumType
-from imzy._normalizations import get_normalizations
 
 _BRUKER_ROI_READER_NAMES = {"NeoFlexReader", "TDFReader", "TSFReader"}
 _BRUKER_TDF_READER_NAME = "TDFReader"
@@ -69,7 +68,6 @@ def convert(
     silent: bool,
 ) -> None:
     """Convert a supported imaging mass spectrometry file to imzML."""
-    _validate_normalization(normalization)
     reader = _get_reader(input_path, roi=roi)
     reader_name = reader.__class__.__name__
     if roi is not None and reader_name not in _BRUKER_ROI_READER_NAMES:
@@ -96,15 +94,6 @@ def convert(
         if close is not None:
             close()
     click.echo(str(output))
-
-
-def _validate_normalization(normalization: str | None) -> None:
-    if normalization is None:
-        return
-    normalizations = get_normalizations()
-    if normalization not in normalizations:
-        valid = ", ".join(normalizations)
-        raise click.ClickException(f"Invalid normalization: {normalization!r}. Expected one of: {valid}.")
 
 
 def _get_reader(input_path: Path, *, roi: int | None) -> BaseReader:
