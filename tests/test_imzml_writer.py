@@ -211,6 +211,39 @@ def test_reader_export_shifts_zero_based_coordinates(tmp_path: Path) -> None:
     np.testing.assert_array_equal(exported.xyz_coordinates, np.asarray([[1, 2, 1]]))
 
 
+def test_manual_empty_spectrum_warns_and_skips(tmp_path: Path) -> None:
+    """Skip manual spectra without m/z peaks."""
+    with IMZMLWriter(tmp_path / "manual_empty") as writer:
+        assert writer.add_spectrum([100.0], [1.0], (1, 1)) is True
+        with pytest.warns(UserWarning, match="no m/z peaks"):
+            assert writer.add_spectrum([], [], (2, 1)) is False
+        assert writer.add_spectrum([102.0], [3.0], (3, 1)) is True
+
+    reader = IMZMLReader(tmp_path / "manual_empty.imzML", parse_lib="ElementTree")
+    assert reader.n_pixels == 2
+    np.testing.assert_array_equal(reader.xyz_coordinates, np.asarray([[1, 1, 1], [3, 1, 1]]))
+    np.testing.assert_array_equal(reader.get_tic(silent=True), np.asarray([1.0, 3.0]))
+
+
+def test_reader_empty_spectrum_warns_and_skips(tmp_path: Path) -> None:
+    """Skip reader pixels without m/z peaks."""
+    spectra = [
+        (np.asarray([100.0]), np.asarray([1.0], dtype=np.float32)),
+        (np.asarray([]), np.asarray([], dtype=np.float32)),
+        (np.asarray([102.0]), np.asarray([3.0], dtype=np.float32)),
+    ]
+    coordinates = np.asarray([[0, 0, 0], [1, 0, 0], [2, 0, 0]])
+    reader = DummyReader(spectra, coordinates)
+
+    with pytest.warns(UserWarning, match="no m/z peaks"):
+        output_path = write_imzml(reader, tmp_path / "reader_empty", silent=True)
+    exported = IMZMLReader(output_path, parse_lib="ElementTree")
+
+    assert exported.n_pixels == 2
+    np.testing.assert_array_equal(exported.xyz_coordinates, np.asarray([[1, 1, 1], [3, 1, 1]]))
+    np.testing.assert_array_equal(exported.get_tic(silent=True), np.asarray([1.0, 3.0]))
+
+
 def test_writer_validation(tmp_path: Path) -> None:
     """Validate writer error handling."""
     with pytest.raises(ValueError, match="Unsupported mz_dtype"):

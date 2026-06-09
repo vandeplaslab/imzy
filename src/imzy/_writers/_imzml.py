@@ -93,6 +93,10 @@ class _WriterState:
     n_spectra: int
 
 
+class _EmptySpectrumError(ValueError):
+    """Raised when a spectrum has no m/z peaks."""
+
+
 class IMZMLWriter:
     """Write imzML and ibd files."""
 
@@ -205,6 +209,9 @@ class IMZMLWriter:
             self._add_spectrum_checked(mzs, intensities, coords, user_params=user_params)
         except Exception as error:
             self._restore_state(state)
+            if isinstance(error, _EmptySpectrumError):
+                self._warn_skipped_spectrum(error, context=error_context)
+                return False
             if self.on_error == ON_ERROR_WARN:
                 self._warn_skipped_spectrum(error, context=error_context)
                 return False
@@ -228,7 +235,7 @@ class IMZMLWriter:
         if mz_array.shape != intensity_array.shape:
             raise ValueError("m/z and intensity arrays must have the same shape.")
         if mz_array.size == 0:
-            raise ValueError("Cannot write an empty spectrum.")
+            raise _EmptySpectrumError("Spectrum has no m/z peaks.")
 
         mz_location = self._get_mz_location(mz_array)
         intensity_location = self._encode_and_write(intensity_array, self.intensity_dtype)
