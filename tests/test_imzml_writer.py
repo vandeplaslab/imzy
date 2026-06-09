@@ -10,7 +10,14 @@ from xml.etree import ElementTree as ET
 import numpy as np
 import pytest
 
-from imzy import IMZMLReader, IMZMLWriter, write_imzml
+import imzy
+from imzy import (
+    EmptySpectrumWarning,
+    IMZMLReader,
+    IMZMLWriter,
+    SkippedSpectrumWarning,
+    write_imzml,
+)
 from imzy._readers._base import BaseReader
 from imzy._readers.imzml._imzml import SPECTRUM_MODE_CENTROID, SPECTRUM_MODE_PROFILE, init_metadata
 
@@ -32,6 +39,14 @@ def _has_cv_param(path: Path, accession: str) -> bool:
     """Return whether an imzML file contains a cvParam accession."""
     root = ET.parse(path).getroot()
     return root.find(f'.//mzml:cvParam[@accession="{accession}"]', _MZML_NS) is not None
+
+
+def _cv_value(path: Path, accession: str) -> str:
+    """Return a cvParam value from an imzML file."""
+    root = ET.parse(path).getroot()
+    element = root.find(f'.//mzml:cvParam[@accession="{accession}"]', _MZML_NS)
+    assert element is not None
+    return element.attrib["value"]
 
 
 class DummyReader(BaseReader):
@@ -215,7 +230,7 @@ def test_manual_empty_spectrum_warns_and_skips(tmp_path: Path) -> None:
     """Skip manual spectra without m/z peaks."""
     with IMZMLWriter(tmp_path / "manual_empty") as writer:
         assert writer.add_spectrum([100.0], [1.0], (1, 1)) is True
-        with pytest.warns(UserWarning, match="no m/z peaks"):
+        with pytest.warns(EmptySpectrumWarning, match="no m/z peaks"):
             assert writer.add_spectrum([], [], (2, 1)) is False
         assert writer.add_spectrum([102.0], [3.0], (3, 1)) is True
 
@@ -235,7 +250,7 @@ def test_reader_empty_spectrum_warns_and_skips(tmp_path: Path) -> None:
     coordinates = np.asarray([[0, 0, 0], [1, 0, 0], [2, 0, 0]])
     reader = DummyReader(spectra, coordinates)
 
-    with pytest.warns(UserWarning, match="no m/z peaks"):
+    with pytest.warns(EmptySpectrumWarning, match="no m/z peaks"):
         output_path = write_imzml(reader, tmp_path / "reader_empty", silent=True)
     exported = IMZMLReader(output_path, parse_lib="ElementTree")
 
@@ -271,7 +286,7 @@ def test_manual_warn_skips_invalid_spectrum(tmp_path: Path) -> None:
     """Skip invalid manual spectra when warnings are requested."""
     with IMZMLWriter(tmp_path / "manual_warn", on_error="warn") as writer:
         assert writer.add_spectrum([100.0], [1.0], (1, 1)) is True
-        with pytest.warns(UserWarning, match="Skipping spectrum"):
+        with pytest.warns(SkippedSpectrumWarning, match="Skipping spectrum"):
             assert writer.add_spectrum([101.0], [2.0], (2,)) is False
         assert writer.add_spectrum([102.0], [3.0], (2, 1)) is True
 
@@ -302,7 +317,7 @@ def test_reader_warn_skips_bad_pixel(tmp_path: Path) -> None:
     coordinates = np.asarray([[0, 0, 0], [1, 0, 0], [2, 0, 0]])
     reader = DummyReader(spectra, coordinates, failing_indices={1})
 
-    with pytest.warns(UserWarning, match="pixel 1"):
+    with pytest.warns(SkippedSpectrumWarning, match="pixel 1"):
         output_path = write_imzml(reader, tmp_path / "reader_warn", on_error="warn", silent=True)
     exported = IMZMLReader(output_path, parse_lib="ElementTree")
 
@@ -331,8 +346,117 @@ def test_warn_all_skipped_deletes_partial_files(tmp_path: Path) -> None:
     """Reject zero-spectrum files after all spectra are skipped."""
     with pytest.raises(ValueError, match="without any spectra"):
         with IMZMLWriter(tmp_path / "empty_warn", on_error="warn") as writer:
-            with pytest.warns(UserWarning, match="Skipping spectrum"):
+            with pytest.warns(SkippedSpectrumWarning, match="Skipping spectrum"):
                 writer.add_spectrum([100.0], [1.0], (1,))
 
     assert not (tmp_path / "empty_warn.imzML").exists()
     assert not (tmp_path / "empty_warn.ibd").exists()
+
+
+def test_overwrite_false_refuses_existing_outputs(tmp_path: Path) -> None:
+    """Refuse to overwrite existing output files by default."""
+    imzml_path = tmp_path / "existing.imzML"
+    ibd_path = tmp_path / "existing.ibd"
+    imzml_path.write_text("old xml", encoding="utf-8")
+    ibd_path.write_bytes(b"old ibd")
+
+    with pytest.raises(FileExistsError, match="Refusing to overwrite"):
+        IMZMLWriter(tmp_path / "existing")
+
+    assert imzml_path.read_text(encoding="utf-8") == "old xml"
+    assert ibd_path.read_bytes() == b"old ibd"
+    assert not list(tmp_path.glob(".*existing*.tmp"))
+
+
+def test_overwrite_true_replaces_existing_outputs(tmp_path: Path) -> None:
+    """Replace existing output files only after a successful write."""
+    imzml_path = tmp_path / "replace.imzML"
+    ibd_path = tmp_path / "replace.ibd"
+    imzml_path.write_text("old xml", encoding="utf-8")
+    ibd_path.write_bytes(b"old ibd")
+
+    with IMZMLWriter(tmp_path / "replace", overwrite=True) as writer:
+        writer.add_spectrum([100.0], [1.0], (1, 1))
+
+    exported = IMZMLReader(imzml_path, parse_lib="ElementTree")
+    assert exported.n_pixels == 1
+    assert imzml_path.read_text(encoding="ISO-8859-1") != "old xml"
+    assert ibd_path.read_bytes() != b"old ibd"
+
+
+def test_atomic_failure_preserves_existing_outputs(tmp_path: Path) -> None:
+    """Leave existing final files untouched when overwrite export fails."""
+    output_path = tmp_path / "atomic"
+    with IMZMLWriter(output_path) as writer:
+        writer.add_spectrum([100.0], [1.0], (1, 1))
+    old_xml = output_path.with_suffix(".imzML").read_bytes()
+    old_ibd = output_path.with_suffix(".ibd").read_bytes()
+
+    with pytest.raises(RuntimeError, match="planned failure"):
+        with IMZMLWriter(output_path, overwrite=True) as writer:
+            writer.add_spectrum([101.0], [2.0], (2, 1))
+            raise RuntimeError("planned failure")
+
+    assert output_path.with_suffix(".imzML").read_bytes() == old_xml
+    assert output_path.with_suffix(".ibd").read_bytes() == old_ibd
+    assert not list(tmp_path.glob(".*atomic*.tmp"))
+
+
+def test_writer_metadata_is_exported(tmp_path: Path) -> None:
+    """Write core imzy metadata to the XML file."""
+    source_path = tmp_path / "source.raw"
+    with IMZMLWriter(
+        tmp_path / "metadata",
+        source_path=source_path,
+        pixel_size=(20.5, 21.5),
+        image_shape=(4, 5),
+    ) as writer:
+        writer.add_spectrum([100.0], [1.0], (1, 1))
+
+    imzml_path = tmp_path / "metadata.imzML"
+    root = ET.parse(imzml_path).getroot()
+    software = root.find('.//mzml:software[@id="imzy"]', _MZML_NS)
+    assert software is not None
+    assert software.attrib["version"] == imzy.get_version()
+    source_file = root.find(".//mzml:sourceFile", _MZML_NS)
+    assert source_file is not None
+    assert source_file.attrib["name"] == source_path.name
+    assert source_file.attrib["location"] == str(source_path.parent)
+    assert root.find('.//mzml:userParam[@name="imzy export timestamp"]', _MZML_NS) is not None
+    assert _cv_value(imzml_path, "IMS:1000042") == "5"
+    assert _cv_value(imzml_path, "IMS:1000043") == "4"
+    assert _cv_value(imzml_path, "IMS:1000046") == "20.5"
+    assert _cv_value(imzml_path, "IMS:1000047") == "21.5"
+
+
+def test_write_imzml_indices_preserve_selection_order(tmp_path: Path) -> None:
+    """Export only selected reader indices in the requested order."""
+    spectra = [
+        (np.asarray([100.0]), np.asarray([1.0], dtype=np.float32)),
+        (np.asarray([101.0]), np.asarray([2.0], dtype=np.float32)),
+        (np.asarray([102.0]), np.asarray([3.0], dtype=np.float32)),
+    ]
+    coordinates = np.asarray([[0, 0, 0], [1, 0, 0], [2, 1, 0]])
+    reader = DummyReader(spectra, coordinates)
+
+    output_path = write_imzml(reader, tmp_path / "indices", indices=[2, 0], silent=True)
+    exported = IMZMLReader(output_path, parse_lib="ElementTree")
+
+    assert exported.n_pixels == 2
+    np.testing.assert_array_equal(exported.xyz_coordinates, np.asarray([[3, 2, 1], [1, 1, 1]]))
+    np.testing.assert_array_equal(exported.get_spectrum(0)[0], spectra[2][0])
+    np.testing.assert_array_equal(exported.get_spectrum(0)[1], spectra[2][1])
+    np.testing.assert_array_equal(exported.get_spectrum(1)[0], spectra[0][0])
+    np.testing.assert_array_equal(exported.get_spectrum(1)[1], spectra[0][1])
+
+
+def test_write_imzml_indices_validation(tmp_path: Path) -> None:
+    """Validate reader export indices."""
+    spectra = [(np.asarray([100.0]), np.asarray([1.0], dtype=np.float32))]
+    coordinates = np.asarray([[0, 0, 0]])
+    reader = DummyReader(spectra, coordinates)
+
+    with pytest.raises(ValueError, match="within"):
+        write_imzml(reader, tmp_path / "bad_index", indices=[1], silent=True)
+    with pytest.raises(ValueError, match="integers"):
+        write_imzml(reader, tmp_path / "bad_float_index", indices=[0.5], silent=True)

@@ -39,12 +39,15 @@ def discover_plugins():
 __version__: str = get_version()
 __all__ = (
     "BaseReader",
+    "EmptySpectrumWarning",
     "H5CentroidsStore",
     "H5NormalizationStore",
     "IMZMLReader",
     "IMZMLWriter",
+    "IMZMLWriterWarning",
     "InMemoryStore",
     "NeoFlexReader",
+    "SkippedSpectrumWarning",
     "TDFReader",
     "TSFReader",
     "WatersReader",
@@ -71,7 +74,10 @@ _LAZY_IMPORTS = {
     "get_normalizations": ("imzy._normalizations", "get_normalizations"),
     "H5NormalizationStore": ("imzy._normalizations", "H5NormalizationStore"),
     # Writers
+    "EmptySpectrumWarning": ("imzy._writers", "EmptySpectrumWarning"),
     "IMZMLWriter": ("imzy._writers", "IMZMLWriter"),
+    "IMZMLWriterWarning": ("imzy._writers", "IMZMLWriterWarning"),
+    "SkippedSpectrumWarning": ("imzy._writers", "SkippedSpectrumWarning"),
     "write_imzml": ("imzy._writers", "write_imzml"),
 }
 
@@ -107,4 +113,10 @@ if ty.TYPE_CHECKING:
         WatersReader,
         get_reader,
     )
-    from imzy._writers import IMZMLWriter, write_imzml
+    from imzy._writers import (
+        EmptySpectrumWarning,
+        IMZMLWriter,
+        IMZMLWriterWarning,
+        SkippedSpectrumWarning,
+        write_imzml,
+    )

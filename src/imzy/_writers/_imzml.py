@@ -8,6 +8,7 @@ import uuid
 import warnings
 from contextlib import nullcontext, suppress
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
@@ -32,6 +33,7 @@ UserParam = ty.Mapping[str, UserParamValue]
 IBD_MODE_CONTINUOUS: ty.Literal["continuous"] = "continuous"
 IBD_MODE_PROCESSED: ty.Literal["processed"] = "processed"
 IBD_MODE_AUTO: ty.Literal["auto"] = "auto"
+SPECTRUM_TYPE_AUTO: ty.Literal["auto"] = "auto"
 SPECTRUM_TYPE_CENTROID: ty.Literal["centroid"] = "centroid"
 SPECTRUM_TYPE_PROFILE: ty.Literal["profile"] = "profile"
 COORDINATE_ORIGIN_AUTO: ty.Literal["auto"] = "auto"
@@ -97,6 +99,18 @@ class _EmptySpectrumError(ValueError):
     """Raised when a spectrum has no m/z peaks."""
 
 
+class IMZMLWriterWarning(UserWarning):
+    """Base warning emitted by the imzML writer."""
+
+
+class SkippedSpectrumWarning(IMZMLWriterWarning):
+    """Warning emitted when a spectrum is skipped."""
+
+
+class EmptySpectrumWarning(SkippedSpectrumWarning):
+    """Warning emitted when a spectrum has no m/z peaks."""
+
+
 class IMZMLWriter:
     """Write imzML and ibd files."""
 
@@ -111,6 +125,10 @@ class IMZMLWriter:
         polarity: str | None = None,
         coordinate_origin: CoordinateOrigin = COORDINATE_ORIGIN_ONE,
         on_error: OnError = ON_ERROR_ERROR,
+        overwrite: bool = False,
+        source_path: PathLike | None = None,
+        pixel_size: tuple[float, float] | None = None,
+        image_shape: tuple[int, int] | None = None,
     ) -> None:
         self.mz_dtype = _validate_dtype(mz_dtype, name="mz_dtype")
         self.intensity_dtype = _validate_dtype(intensity_dtype, name="intensity_dtype")
@@ -123,15 +141,22 @@ class IMZMLWriter:
             self.coordinate_origin = COORDINATE_ORIGIN_ZERO
 
         self.base_path, self.imzml_path, self.ibd_path = _resolve_output_paths(output_path)
+        self.overwrite = overwrite
+        self.source_path = Path(source_path) if source_path is not None else None
+        self.pixel_size = pixel_size
+        self.image_shape = image_shape
+        self.export_timestamp = datetime.now(timezone.utc).isoformat()
+        self._check_overwrite()
         self.run_id = self.base_path.name
         self.uuid = uuid.uuid4()
+        self.temp_imzml_path, self.temp_ibd_path = _resolve_temp_output_paths(self.imzml_path, self.ibd_path)
         self.sha1 = hashlib.sha1()
         self._closed = False
         self._spectra: list[_Spectrum] = []
         self._first_mz: _ExternalArray | None = None
         self._mz_cache: dict[tuple[tuple[int, ...], bytes], _ExternalArray] = {}
 
-        self._ibd = self.ibd_path.open("wb+")
+        self._ibd = self.temp_ibd_path.open("wb+")
         self._write_ibd(self.uuid.bytes)
 
     @property
@@ -146,20 +171,32 @@ class IMZMLWriter:
         output_path: PathLike,
         *,
         ibd_mode: IbdMode = IBD_MODE_AUTO,
-        spectrum_type: SpectrumType = COORDINATE_ORIGIN_AUTO,
+        spectrum_type: SpectrumType = SPECTRUM_TYPE_AUTO,
         coordinate_origin: CoordinateOrigin = COORDINATE_ORIGIN_AUTO,
         mz_dtype: ty.Any | None = None,
         intensity_dtype: ty.Any | None = None,
         on_error: OnError = ON_ERROR_ERROR,
+        overwrite: bool = False,
+        indices: ty.Iterable[int] | None = None,
+        source_path: PathLike | None = None,
+        pixel_size: tuple[float, float] | None = None,
+        image_shape: tuple[int, int] | None = None,
         silent: bool = False,
     ) -> Path:
         """Write an imzy reader to imzML."""
         resolved_spectrum_type = _resolve_reader_spectrum_type(reader, spectrum_type)
         resolved_coordinate_origin = _resolve_reader_coordinate_origin(reader, coordinate_origin)
+        export_indices = _validate_indices(indices, reader.n_pixels)
         if mz_dtype is None:
             mz_dtype = _reader_dtype(reader, "mz_precision", np.float64)
         if intensity_dtype is None:
             intensity_dtype = _reader_dtype(reader, "int_precision", np.float32)
+        if source_path is None:
+            source_path = reader.path
+        if pixel_size is None:
+            pixel_size = (reader.x_pixel_size, reader.y_pixel_size)
+        if image_shape is None:
+            image_shape = reader.image_shape
 
         with cls(
             output_path,
@@ -169,18 +206,23 @@ class IMZMLWriter:
             spectrum_type=resolved_spectrum_type,
             coordinate_origin=resolved_coordinate_origin,
             on_error=on_error,
+            overwrite=overwrite,
+            source_path=source_path,
+            pixel_size=pixel_size,
+            image_shape=image_shape,
         ) as writer:
             context = reader._disable_auto_profile() if hasattr(reader, "_disable_auto_profile") else nullcontext()
             with context:
                 coordinates = np.asarray(reader.xyz_coordinates)
                 iterator = tqdm(
-                    enumerate(coordinates),
-                    total=reader.n_pixels,
+                    export_indices,
+                    total=len(export_indices),
                     disable=silent,
                     miniters=500,
                     desc="Writing imzML...",
                 )
-                for index, coords in iterator:
+                for index in iterator:
+                    coords = coordinates[index]
                     try:
                         mzs, intensities = reader.get_spectrum(index)
                     except Exception as error:
@@ -263,6 +305,7 @@ class IMZMLWriter:
                 raise ValueError("Cannot write imzML output without any spectra.")
             self._ibd.close()
             self._write_xml()
+            self._finalize_outputs()
             self._closed = True
         except Exception:
             self._cleanup_outputs()
@@ -303,19 +346,57 @@ class IMZMLWriter:
         del self._spectra[state.n_spectra :]
 
     def _cleanup_outputs(self) -> None:
-        with suppress(ValueError, OSError):
-            self._ibd.close()
+        ibd = getattr(self, "_ibd", None)
+        if ibd is not None:
+            with suppress(ValueError, OSError):
+                ibd.close()
         self._closed = True
-        with suppress(FileNotFoundError):
-            self.imzml_path.unlink()
-        with suppress(FileNotFoundError):
-            self.ibd_path.unlink()
+        for path in (getattr(self, "temp_imzml_path", None), getattr(self, "temp_ibd_path", None)):
+            if path is not None:
+                with suppress(FileNotFoundError):
+                    path.unlink()
+
+    def _check_overwrite(self) -> None:
+        if self.overwrite:
+            return
+        existing = [path for path in (self.imzml_path, self.ibd_path) if path.exists()]
+        if existing:
+            paths = ", ".join(str(path) for path in existing)
+            raise FileExistsError(f"Refusing to overwrite existing imzML output: {paths}.")
+
+    def _finalize_outputs(self) -> None:
+        backup_imzml_path, backup_ibd_path = _resolve_temp_output_paths(self.imzml_path, self.ibd_path)
+        final_paths = (self.imzml_path, self.ibd_path)
+        backup_paths = (backup_imzml_path, backup_ibd_path)
+        try:
+            for final_path, backup_path in zip(final_paths, backup_paths, strict=True):
+                if final_path.exists():
+                    final_path.replace(backup_path)
+            self.temp_ibd_path.replace(self.ibd_path)
+            self.temp_imzml_path.replace(self.imzml_path)
+        except Exception:
+            for final_path in final_paths:
+                with suppress(FileNotFoundError):
+                    final_path.unlink()
+            for backup_path, final_path in zip(backup_paths, final_paths, strict=True):
+                if backup_path.exists():
+                    backup_path.replace(final_path)
+            raise
+        finally:
+            for backup_path in backup_paths:
+                with suppress(FileNotFoundError):
+                    backup_path.unlink()
 
     def _warn_skipped_spectrum(self, error: Exception, *, context: str | None = None) -> None:
         message = "Skipping spectrum"
         if context:
             message = f"{message} for {context}"
-        warnings.warn(f"{message}: {error}", stacklevel=3)
+        category: type[IMZMLWriterWarning]
+        if isinstance(error, _EmptySpectrumError):
+            category = EmptySpectrumWarning
+        else:
+            category = SkippedSpectrumWarning
+        warnings.warn(f"{message}: {error}", category, stacklevel=3)
 
     def _get_mz_location(self, mz_array: np.ndarray) -> _ExternalArray:
         if self.ibd_mode == IBD_MODE_CONTINUOUS:
@@ -386,7 +467,7 @@ class IMZMLWriter:
 
         tree = ET.ElementTree(root)
         ET.indent(tree, space="  ")
-        tree.write(self.imzml_path, encoding="ISO-8859-1", xml_declaration=True)
+        tree.write(self.temp_imzml_path, encoding="ISO-8859-1", xml_declaration=True)
 
     def _add_cv_list(self, root: ET.Element) -> None:
         cv_list = _sub(root, "cvList", count="3")
@@ -416,12 +497,22 @@ class IMZMLWriter:
         )
 
     def _add_file_description(self, root: ET.Element) -> None:
-        file_content = _sub(_sub(root, "fileDescription"), "fileContent")
+        file_description = _sub(root, "fileDescription")
+        file_content = _sub(file_description, "fileContent")
         _cv(file_content, "MS", "MS:1000579", "MS1 spectrum")
         self._add_spectrum_type_param(file_content)
         _cv(file_content, "IMS", _ibd_mode_accession(self.resolved_ibd_mode), self.resolved_ibd_mode)
         _cv(file_content, "IMS", "IMS:1000080", "universally unique identifier", value=f"{{{self.uuid}}}".upper())
         _cv(file_content, "IMS", "IMS:1000091", "ibd SHA-1", value=self.sha1.hexdigest().upper())
+        if self.source_path is not None:
+            source_list = _sub(file_description, "sourceFileList", count="1")
+            _sub(
+                source_list,
+                "sourceFile",
+                id="source_file_1",
+                location=str(self.source_path.parent),
+                name=self.source_path.name,
+            )
 
     def _add_referenceable_param_groups(self, root: ET.Element) -> None:
         groups = _sub(root, "referenceableParamGroupList", count="4")
@@ -476,7 +567,9 @@ class IMZMLWriter:
             _cv(element, "MS", "MS:1000128", "profile spectrum")
 
     def _add_software_list(self, root: ET.Element) -> None:
-        software = _sub(_sub(root, "softwareList", count="1"), "software", id="imzy", version="unknown")
+        import imzy
+
+        software = _sub(_sub(root, "softwareList", count="1"), "software", id="imzy", version=imzy.get_version())
         _cv(software, "MS", "MS:1000799", "custom unreleased software tool", value="imzy imzML writer")
 
     def _add_scan_settings(self, root: ET.Element) -> None:
@@ -485,10 +578,15 @@ class IMZMLWriter:
         _cv(scan_settings, "IMS", "IMS:1000411", "one way")
         _cv(scan_settings, "IMS", "IMS:1000480", "horizontal line scan")
         _cv(scan_settings, "IMS", "IMS:1000491", "linescan left right")
-        _cv(scan_settings, "IMS", "IMS:1000042", "max count of pixels x", value=str(self._max_coordinate(0)))
-        _cv(scan_settings, "IMS", "IMS:1000043", "max count of pixels y", value=str(self._max_coordinate(1)))
-        _cv(scan_settings, "IMS", "IMS:1000044", "max dimension x", value=str(self._max_coordinate(0)))
-        _cv(scan_settings, "IMS", "IMS:1000045", "max dimension y", value=str(self._max_coordinate(1)))
+        x_size, y_size = self._image_dimensions()
+        _cv(scan_settings, "IMS", "IMS:1000042", "max count of pixels x", value=str(x_size))
+        _cv(scan_settings, "IMS", "IMS:1000043", "max count of pixels y", value=str(y_size))
+        _cv(scan_settings, "IMS", "IMS:1000044", "max dimension x", value=str(x_size))
+        _cv(scan_settings, "IMS", "IMS:1000045", "max dimension y", value=str(y_size))
+        if self.pixel_size is not None:
+            x_pixel_size, y_pixel_size = self.pixel_size
+            _cv(scan_settings, "IMS", "IMS:1000046", "pixel size x", value=_format_float(x_pixel_size))
+            _cv(scan_settings, "IMS", "IMS:1000047", "pixel size y", value=_format_float(y_pixel_size))
 
     def _add_instrument_configuration(self, root: ET.Element) -> None:
         _sub(_sub(root, "instrumentConfigurationList", count="1"), "instrumentConfiguration", id="IC1")
@@ -497,6 +595,7 @@ class IMZMLWriter:
         data_processing = _sub(_sub(root, "dataProcessingList", count="1"), "dataProcessing", id="export_from_imzy")
         method = _sub(data_processing, "processingMethod", order="0", softwareRef="imzy")
         _cv(method, "MS", "MS:1000530", "file format conversion", value="Output to imzML")
+        _sub(method, "userParam", name="imzy export timestamp", value=self.export_timestamp)
 
     def _add_run(self, root: ET.Element) -> None:
         run = _sub(root, "run", defaultInstrumentConfigurationRef="IC1", id=self.run_id)
@@ -591,18 +690,52 @@ class IMZMLWriter:
         """Return the resolved imzML ibd mode."""
         return self.ibd_mode
 
-    def _unique_mz_locations(self) -> set[tuple[int, int, int]]:
-        return {(spectrum.mz.offset, spectrum.mz.length, spectrum.mz.encoded_length) for spectrum in self._spectra}
-
     def _max_coordinate(self, index: int) -> int:
         if not self._spectra:
             return 0
         return max(spectrum.coords[index] for spectrum in self._spectra)
 
+    def _image_dimensions(self) -> tuple[int, int]:
+        if self.image_shape is not None:
+            y_size, x_size = self.image_shape
+            return int(x_size), int(y_size)
+        return self._max_coordinate(0), self._max_coordinate(1)
 
-def write_imzml(reader: BaseReader, output_path: PathLike, **kwargs: ty.Any) -> Path:
+
+def write_imzml(
+    reader: BaseReader,
+    output_path: PathLike,
+    *,
+    ibd_mode: IbdMode = IBD_MODE_AUTO,
+    spectrum_type: SpectrumType = SPECTRUM_TYPE_AUTO,
+    coordinate_origin: CoordinateOrigin = COORDINATE_ORIGIN_AUTO,
+    mz_dtype: ty.Any | None = None,
+    intensity_dtype: ty.Any | None = None,
+    on_error: OnError = ON_ERROR_ERROR,
+    overwrite: bool = False,
+    indices: ty.Iterable[int] | None = None,
+    source_path: PathLike | None = None,
+    pixel_size: tuple[float, float] | None = None,
+    image_shape: tuple[int, int] | None = None,
+    silent: bool = False,
+) -> Path:
     """Write an imzy reader to imzML."""
-    return IMZMLWriter.from_reader(reader, output_path, **kwargs)
+    return IMZMLWriter.from_reader(
+        reader,
+        output_path,
+        ibd_mode=ibd_mode,
+        spectrum_type=spectrum_type,
+        coordinate_origin=coordinate_origin,
+        mz_dtype=mz_dtype,
+        intensity_dtype=intensity_dtype,
+        on_error=on_error,
+        overwrite=overwrite,
+        indices=indices,
+        source_path=source_path,
+        pixel_size=pixel_size,
+        image_shape=image_shape,
+        silent=silent,
+    )
 
 
 def _resolve_output_paths(output_path: PathLike) -> tuple[Path, Path, Path]:
@@ -612,6 +745,26 @@ def _resolve_output_paths(output_path: PathLike) -> tuple[Path, Path, Path]:
     else:
         base_path = path
     return base_path, base_path.with_suffix(".imzML"), base_path.with_suffix(".ibd")
+
+
+def _resolve_temp_output_paths(imzml_path: Path, ibd_path: Path) -> tuple[Path, Path]:
+    token = uuid.uuid4().hex
+    temp_imzml_path = imzml_path.with_name(f".{imzml_path.name}.{token}.tmp")
+    temp_ibd_path = ibd_path.with_name(f".{ibd_path.name}.{token}.tmp")
+    return temp_imzml_path, temp_ibd_path
+
+
+def _validate_indices(indices: ty.Iterable[int] | None, n_pixels: int) -> list[int]:
+    if indices is None:
+        return list(range(n_pixels))
+    array = np.asarray(list(indices))
+    if array.ndim != 1:
+        raise ValueError("indices must be a one-dimensional iterable of integers.")
+    if not np.issubdtype(array.dtype, np.integer):
+        raise ValueError("indices must contain integers.")
+    if array.size and (np.any(array < 0) or np.any(array >= n_pixels)):
+        raise ValueError(f"indices must be within [0, {n_pixels}).")
+    return [int(index) for index in array]
 
 
 def _validate_dtype(dtype: ty.Any, *, name: str) -> np.dtype:
@@ -664,7 +817,7 @@ def _validate_polarity(polarity: str | None) -> str:
 
 
 def _resolve_reader_spectrum_type(reader: BaseReader, spectrum_type: str) -> ResolvedSpectrumType:
-    if spectrum_type == COORDINATE_ORIGIN_AUTO:
+    if spectrum_type == SPECTRUM_TYPE_AUTO:
         return SPECTRUM_TYPE_CENTROID if reader.is_centroid else SPECTRUM_TYPE_PROFILE
     return _validate_resolved_spectrum_type(spectrum_type)
 
