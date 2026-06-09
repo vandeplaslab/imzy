@@ -212,8 +212,6 @@ ignore = [
   "tests/**/*",
   "**/*_version.py",
   "Makefile",
-  "tox.ini",
-  "misc/*.yml",
   "MANIFEST.in",
 ]
 ignore-bad-ideas = [
