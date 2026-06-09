@@ -34,10 +34,12 @@ class DummyReader(BaseReader):
         coordinates: np.ndarray,
         *,
         is_centroid: bool = True,
+        failing_indices: set[int] | None = None,
     ) -> None:
         self._spectra_data = spectra
         self._xyz_coordinates = coordinates
         self._is_centroid = is_centroid
+        self._failing_indices = failing_indices or set()
         super().__init__("dummy")
 
     @property
@@ -85,6 +87,8 @@ class DummyReader(BaseReader):
         return mzs, intensities
 
     def _read_spectrum(self, index: int) -> tuple[np.ndarray, np.ndarray]:
+        if index in self._failing_indices:
+            raise RuntimeError(f"Could not read pixel {index}.")
         return self._spectra_data[index]
 
     def _read_spectra(self, indices: ty.Iterable[int] | None = None) -> ty.Iterator[tuple[np.ndarray, np.ndarray]]:
@@ -177,6 +181,8 @@ def test_writer_validation(tmp_path: Path) -> None:
         IMZMLWriter(tmp_path / "bad_spectrum", spectrum_type="raw")  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="Invalid ibd_mode"):
         IMZMLWriter(tmp_path / "bad_mode", ibd_mode="bad")  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="Invalid on_error"):
+        IMZMLWriter(tmp_path / "bad_error", on_error="skip")  # type: ignore[arg-type]
 
     with IMZMLWriter(tmp_path / "continuous", ibd_mode="continuous") as writer:
         writer.add_spectrum([1.0, 2.0], [1.0, 2.0], (1, 1))
@@ -184,6 +190,78 @@ def test_writer_validation(tmp_path: Path) -> None:
             writer.add_spectrum([1.0, 3.0], [1.0, 2.0], (2, 1))
 
     writer = IMZMLWriter(tmp_path / "closed")
+    writer.add_spectrum([1.0], [1.0], (1, 1))
     writer.close()
     with pytest.raises(ValueError, match="closed"):
         writer.add_spectrum([1.0], [1.0], (1, 1))
+
+
+def test_manual_warn_skips_invalid_spectrum(tmp_path: Path) -> None:
+    """Skip invalid manual spectra when warnings are requested."""
+    with IMZMLWriter(tmp_path / "manual_warn", on_error="warn") as writer:
+        assert writer.add_spectrum([100.0], [1.0], (1, 1)) is True
+        with pytest.warns(UserWarning, match="Skipping spectrum"):
+            assert writer.add_spectrum([101.0], [2.0], (2,)) is False
+        assert writer.add_spectrum([102.0], [3.0], (2, 1)) is True
+
+    reader = IMZMLReader(tmp_path / "manual_warn.imzML", parse_lib="ElementTree")
+    assert reader.n_pixels == 2
+    np.testing.assert_array_equal(reader.xyz_coordinates, np.asarray([[1, 1, 1], [2, 1, 1]]))
+    np.testing.assert_array_equal(reader.get_tic(silent=True), np.asarray([1.0, 3.0]))
+
+
+def test_manual_error_deletes_partial_files(tmp_path: Path) -> None:
+    """Delete partial files when manual writing fails in error mode."""
+    with pytest.raises(ValueError, match="Coordinates"):
+        with IMZMLWriter(tmp_path / "manual_error") as writer:
+            writer.add_spectrum([100.0], [1.0], (1, 1))
+            writer.add_spectrum([101.0], [2.0], (2,))
+
+    assert not (tmp_path / "manual_error.imzML").exists()
+    assert not (tmp_path / "manual_error.ibd").exists()
+
+
+def test_reader_warn_skips_bad_pixel(tmp_path: Path) -> None:
+    """Skip unreadable reader pixels when warnings are requested."""
+    spectra = [
+        (np.asarray([100.0]), np.asarray([1.0], dtype=np.float32)),
+        (np.asarray([101.0]), np.asarray([2.0], dtype=np.float32)),
+        (np.asarray([102.0]), np.asarray([3.0], dtype=np.float32)),
+    ]
+    coordinates = np.asarray([[0, 0, 0], [1, 0, 0], [2, 0, 0]])
+    reader = DummyReader(spectra, coordinates, failing_indices={1})
+
+    with pytest.warns(UserWarning, match="pixel 1"):
+        output_path = write_imzml(reader, tmp_path / "reader_warn", on_error="warn", silent=True)
+    exported = IMZMLReader(output_path, parse_lib="ElementTree")
+
+    assert exported.n_pixels == 2
+    np.testing.assert_array_equal(exported.xyz_coordinates, np.asarray([[1, 1, 1], [3, 1, 1]]))
+    np.testing.assert_array_equal(exported.get_tic(silent=True), np.asarray([1.0, 3.0]))
+
+
+def test_reader_error_deletes_partial_files(tmp_path: Path) -> None:
+    """Delete partial files when reader export fails in error mode."""
+    spectra = [
+        (np.asarray([100.0]), np.asarray([1.0], dtype=np.float32)),
+        (np.asarray([101.0]), np.asarray([2.0], dtype=np.float32)),
+    ]
+    coordinates = np.asarray([[0, 0, 0], [1, 0, 0]])
+    reader = DummyReader(spectra, coordinates, failing_indices={1})
+
+    with pytest.raises(RuntimeError, match="pixel 1"):
+        write_imzml(reader, tmp_path / "reader_error", silent=True)
+
+    assert not (tmp_path / "reader_error.imzML").exists()
+    assert not (tmp_path / "reader_error.ibd").exists()
+
+
+def test_warn_all_skipped_deletes_partial_files(tmp_path: Path) -> None:
+    """Reject zero-spectrum files after all spectra are skipped."""
+    with pytest.raises(ValueError, match="without any spectra"):
+        with IMZMLWriter(tmp_path / "empty_warn", on_error="warn") as writer:
+            with pytest.warns(UserWarning, match="Skipping spectrum"):
+                writer.add_spectrum([100.0], [1.0], (1,))
+
+    assert not (tmp_path / "empty_warn.imzML").exists()
+    assert not (tmp_path / "empty_warn.ibd").exists()

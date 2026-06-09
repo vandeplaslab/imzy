@@ -5,7 +5,8 @@ from __future__ import annotations
 import hashlib
 import typing as ty
 import uuid
-from contextlib import nullcontext
+import warnings
+from contextlib import nullcontext, suppress
 from dataclasses import dataclass
 from pathlib import Path
 from xml.etree import ElementTree as ET
@@ -24,6 +25,7 @@ IbdMode = ty.Literal["auto", "continuous", "processed"]
 SpectrumType = ty.Literal["auto", "centroid", "profile"]
 ResolvedSpectrumType = ty.Literal["centroid", "profile"]
 CoordinateOrigin = ty.Literal["auto", "zero", "one"]
+OnError = ty.Literal["error", "warn"]
 UserParamValue = str | int | float
 UserParam = ty.Mapping[str, UserParamValue]
 
@@ -35,10 +37,13 @@ SPECTRUM_TYPE_PROFILE: ty.Literal["profile"] = "profile"
 COORDINATE_ORIGIN_AUTO: ty.Literal["auto"] = "auto"
 COORDINATE_ORIGIN_ZERO: ty.Literal["zero"] = "zero"
 COORDINATE_ORIGIN_ONE: ty.Literal["one"] = "one"
+ON_ERROR_ERROR: ty.Literal["error"] = "error"
+ON_ERROR_WARN: ty.Literal["warn"] = "warn"
 
 _VALID_IBD_MODES = {IBD_MODE_AUTO, IBD_MODE_CONTINUOUS, IBD_MODE_PROCESSED}
 _VALID_SPECTRUM_TYPES = {SPECTRUM_TYPE_CENTROID, SPECTRUM_TYPE_PROFILE}
 _VALID_COORDINATE_ORIGINS = {COORDINATE_ORIGIN_AUTO, COORDINATE_ORIGIN_ZERO, COORDINATE_ORIGIN_ONE}
+_VALID_ON_ERROR = {ON_ERROR_ERROR, ON_ERROR_WARN}
 _DTYPE_TO_CV: dict[np.dtype[ty.Any], tuple[str, str]] = {
     np.dtype(np.float32): ("32-bit float", "MS:1000521"),
     np.dtype(np.float64): ("64-bit float", "MS:1000523"),
@@ -77,6 +82,17 @@ class _Spectrum:
     user_params: tuple[UserParam, ...]
 
 
+@dataclass(frozen=True)
+class _WriterState:
+    """Mutable writer state before a spectrum write."""
+
+    ibd_position: int
+    sha1: ty.Any
+    first_mz: _ExternalArray | None
+    mz_cache: dict[tuple[tuple[int, ...], bytes], _ExternalArray]
+    n_spectra: int
+
+
 class IMZMLWriter:
     """Write imzML and ibd files."""
 
@@ -90,6 +106,7 @@ class IMZMLWriter:
         spectrum_type: ResolvedSpectrumType = SPECTRUM_TYPE_CENTROID,
         polarity: str | None = None,
         coordinate_origin: CoordinateOrigin = COORDINATE_ORIGIN_ONE,
+        on_error: OnError = ON_ERROR_ERROR,
     ) -> None:
         self.mz_dtype = _validate_dtype(mz_dtype, name="mz_dtype")
         self.intensity_dtype = _validate_dtype(intensity_dtype, name="intensity_dtype")
@@ -97,6 +114,7 @@ class IMZMLWriter:
         self.spectrum_type = _validate_resolved_spectrum_type(spectrum_type)
         self.polarity = _validate_polarity(polarity)
         self.coordinate_origin = _validate_coordinate_origin(coordinate_origin)
+        self.on_error = _validate_on_error(on_error)
         if self.coordinate_origin == COORDINATE_ORIGIN_AUTO:
             self.coordinate_origin = COORDINATE_ORIGIN_ZERO
 
@@ -128,6 +146,7 @@ class IMZMLWriter:
         coordinate_origin: CoordinateOrigin = COORDINATE_ORIGIN_AUTO,
         mz_dtype: ty.Any | None = None,
         intensity_dtype: ty.Any | None = None,
+        on_error: OnError = ON_ERROR_ERROR,
         silent: bool = False,
     ) -> Path:
         """Write an imzy reader to imzML."""
@@ -145,20 +164,27 @@ class IMZMLWriter:
             ibd_mode=ibd_mode,
             spectrum_type=resolved_spectrum_type,
             coordinate_origin=resolved_coordinate_origin,
+            on_error=on_error,
         ) as writer:
             context = reader._disable_auto_profile() if hasattr(reader, "_disable_auto_profile") else nullcontext()
             with context:
                 coordinates = np.asarray(reader.xyz_coordinates)
-                spectra = reader.spectra_iter(silent=True)
                 iterator = tqdm(
-                    zip(spectra, coordinates, strict=True),
+                    enumerate(coordinates),
                     total=reader.n_pixels,
                     disable=silent,
                     miniters=500,
                     desc="Writing imzML...",
                 )
-                for (mzs, intensities), coords in iterator:
-                    writer.add_spectrum(mzs, intensities, coords)
+                for index, coords in iterator:
+                    try:
+                        mzs, intensities = reader.get_spectrum(index)
+                    except Exception as error:
+                        if writer.on_error == ON_ERROR_WARN:
+                            writer._warn_skipped_spectrum(error, context=f"pixel {index} at {tuple(coords)}")
+                            continue
+                        raise
+                    writer.add_spectrum(mzs, intensities, coords, error_context=f"pixel {index} at {tuple(coords)}")
         return writer.imzml_path
 
     def add_spectrum(
@@ -167,11 +193,34 @@ class IMZMLWriter:
         intensities: ty.Iterable[float],
         coords: ty.Sequence[int | float],
         user_params: ty.Iterable[UserParam] | None = None,
-    ) -> None:
+        *,
+        error_context: str | None = None,
+    ) -> bool:
         """Add one spectrum to the output files."""
         if self._closed:
             raise ValueError("Cannot add spectra after the writer has been closed.")
 
+        state = self._capture_state()
+        try:
+            self._add_spectrum_checked(mzs, intensities, coords, user_params=user_params)
+        except Exception as error:
+            self._restore_state(state)
+            if self.on_error == ON_ERROR_WARN:
+                self._warn_skipped_spectrum(error, context=error_context)
+                return False
+            self._cleanup_outputs()
+            raise
+        return True
+
+    def _add_spectrum_checked(
+        self,
+        mzs: ty.Iterable[float],
+        intensities: ty.Iterable[float],
+        coords: ty.Sequence[int | float],
+        *,
+        user_params: ty.Iterable[UserParam] | None = None,
+    ) -> None:
+        """Add one validated spectrum to the output files."""
         mz_array = np.asarray(mzs, dtype=self.mz_dtype)
         intensity_array = np.asarray(intensities, dtype=self.intensity_dtype)
         if mz_array.ndim != 1 or intensity_array.ndim != 1:
@@ -202,9 +251,15 @@ class IMZMLWriter:
         """Write the imzML file and close the writer."""
         if self._closed:
             return
-        self._ibd.close()
-        self._write_xml()
-        self._closed = True
+        try:
+            if not self._spectra:
+                raise ValueError("Cannot write imzML output without any spectra.")
+            self._ibd.close()
+            self._write_xml()
+            self._closed = True
+        except Exception:
+            self._cleanup_outputs()
+            raise
 
     finish = close
 
@@ -220,8 +275,40 @@ class IMZMLWriter:
         if exc_type is None:
             self.close()
         else:
+            self._cleanup_outputs()
+
+    def _capture_state(self) -> _WriterState:
+        self._ibd.flush()
+        return _WriterState(
+            ibd_position=self._ibd.tell(),
+            sha1=self.sha1.copy(),
+            first_mz=self._first_mz,
+            mz_cache=self._mz_cache.copy(),
+            n_spectra=len(self._spectra),
+        )
+
+    def _restore_state(self, state: _WriterState) -> None:
+        self._ibd.seek(state.ibd_position)
+        self._ibd.truncate(state.ibd_position)
+        self.sha1 = state.sha1.copy()
+        self._first_mz = state.first_mz
+        self._mz_cache = state.mz_cache.copy()
+        del self._spectra[state.n_spectra :]
+
+    def _cleanup_outputs(self) -> None:
+        with suppress(ValueError, OSError):
             self._ibd.close()
-            self._closed = True
+        self._closed = True
+        with suppress(FileNotFoundError):
+            self.imzml_path.unlink()
+        with suppress(FileNotFoundError):
+            self.ibd_path.unlink()
+
+    def _warn_skipped_spectrum(self, error: Exception, *, context: str | None = None) -> None:
+        message = "Skipping spectrum"
+        if context:
+            message = f"{message} for {context}"
+        warnings.warn(f"{message}: {error}", stacklevel=3)
 
     def _get_mz_location(self, mz_array: np.ndarray) -> _ExternalArray:
         if self.ibd_mode == IBD_MODE_CONTINUOUS:
@@ -546,6 +633,12 @@ def _validate_coordinate_origin(coordinate_origin: str) -> CoordinateOrigin:
     if coordinate_origin not in _VALID_COORDINATE_ORIGINS:
         raise ValueError(f"Invalid coordinate_origin: {coordinate_origin!r}.")
     return ty.cast(CoordinateOrigin, coordinate_origin)
+
+
+def _validate_on_error(on_error: str) -> OnError:
+    if on_error not in _VALID_ON_ERROR:
+        raise ValueError(f"Invalid on_error: {on_error!r}.")
+    return ty.cast(OnError, on_error)
 
 
 def _validate_polarity(polarity: str | None) -> str:
