@@ -188,7 +188,7 @@ Install the project in development mode and set up the local checks:
 
 ```bash
 make develop
-make pre-commit-install
+make pre-install
 ```
 
 Run the main checks before opening a change:
