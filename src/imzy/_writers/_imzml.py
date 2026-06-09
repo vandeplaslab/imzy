@@ -110,8 +110,8 @@ class IMZMLWriter:
     ) -> None:
         self.mz_dtype = _validate_dtype(mz_dtype, name="mz_dtype")
         self.intensity_dtype = _validate_dtype(intensity_dtype, name="intensity_dtype")
-        self.ibd_mode = _validate_ibd_mode(ibd_mode)
         self.spectrum_type = _validate_resolved_spectrum_type(spectrum_type)
+        self.ibd_mode = _resolve_ibd_mode(_validate_ibd_mode(ibd_mode), self.spectrum_type)
         self.polarity = _validate_polarity(polarity)
         self.coordinate_origin = _validate_coordinate_origin(coordinate_origin)
         self.on_error = _validate_on_error(on_error)
@@ -582,9 +582,7 @@ class IMZMLWriter:
     @property
     def resolved_ibd_mode(self) -> str:
         """Return the resolved imzML ibd mode."""
-        if self.ibd_mode != IBD_MODE_AUTO:
-            return self.ibd_mode
-        return IBD_MODE_CONTINUOUS if len(self._unique_mz_locations()) <= 1 else IBD_MODE_PROCESSED
+        return self.ibd_mode
 
     def _unique_mz_locations(self) -> set[tuple[int, int, int]]:
         return {(spectrum.mz.offset, spectrum.mz.length, spectrum.mz.encoded_length) for spectrum in self._spectra}
@@ -621,6 +619,14 @@ def _validate_ibd_mode(ibd_mode: str) -> IbdMode:
     if ibd_mode not in _VALID_IBD_MODES:
         raise ValueError(f"Invalid ibd_mode: {ibd_mode!r}.")
     return ty.cast(IbdMode, ibd_mode)
+
+
+def _resolve_ibd_mode(ibd_mode: IbdMode, spectrum_type: ResolvedSpectrumType) -> IbdMode:
+    if ibd_mode != IBD_MODE_AUTO:
+        return ibd_mode
+    if spectrum_type == SPECTRUM_TYPE_PROFILE:
+        return IBD_MODE_CONTINUOUS
+    return IBD_MODE_PROCESSED
 
 
 def _validate_resolved_spectrum_type(spectrum_type: str) -> ResolvedSpectrumType:

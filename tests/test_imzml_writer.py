@@ -5,6 +5,7 @@ from __future__ import annotations
 import shutil
 import typing as ty
 from pathlib import Path
+from xml.etree import ElementTree as ET
 
 import numpy as np
 import pytest
@@ -12,6 +13,8 @@ import pytest
 from imzy import IMZMLReader, IMZMLWriter, write_imzml
 from imzy._readers._base import BaseReader
 from imzy._readers.imzml._imzml import SPECTRUM_MODE_CENTROID, SPECTRUM_MODE_PROFILE, init_metadata
+
+_MZML_NS = {"mzml": "http://psi.hupo.org/ms/mzml"}
 
 
 def _copy_imzml_dataset(path: Path, tmp_path: Path) -> Path:
@@ -23,6 +26,12 @@ def _copy_imzml_dataset(path: Path, tmp_path: Path) -> Path:
     if cache_path.exists():
         shutil.copyfile(cache_path, imzml_path.with_suffix(".icache"))
     return imzml_path
+
+
+def _has_cv_param(path: Path, accession: str) -> bool:
+    """Return whether an imzML file contains a cvParam accession."""
+    root = ET.parse(path).getroot()
+    return root.find(f'.//mzml:cvParam[@accession="{accession}"]', _MZML_NS) is not None
 
 
 class DummyReader(BaseReader):
@@ -136,6 +145,35 @@ def test_profile_continuous_roundtrip(tmp_path: Path) -> None:
     assert mz_max == 102.0
     np.testing.assert_array_equal(reader.get_spectrum(1)[0], mzs)
     np.testing.assert_array_equal(reader.get_spectrum(1)[1], np.asarray([4.0, 5.0, 6.0], dtype=np.float32))
+
+
+def test_auto_ibd_mode_uses_spectrum_type(tmp_path: Path) -> None:
+    """Resolve automatic ibd mode from centroid/profile spectrum type."""
+    mzs = np.asarray([100.0, 101.0], dtype=np.float64)
+    intensities = np.asarray([1.0, 2.0], dtype=np.float32)
+
+    with IMZMLWriter(tmp_path / "auto_centroid", spectrum_type="centroid") as writer:
+        writer.add_spectrum(mzs, intensities, (1, 1))
+        writer.add_spectrum(mzs, intensities, (2, 1))
+    *_, centroid_offsets, _coords, centroid_spectrum_mode, _mz_min, _mz_max = init_metadata(
+        tmp_path / "auto_centroid.imzML",
+        parse_lib="ElementTree",
+    )
+
+    with IMZMLWriter(tmp_path / "auto_profile", spectrum_type="profile") as writer:
+        writer.add_spectrum(mzs, intensities, (1, 1))
+        writer.add_spectrum(mzs, intensities, (2, 1))
+    *_, profile_offsets, _coords, profile_spectrum_mode, _mz_min, _mz_max = init_metadata(
+        tmp_path / "auto_profile.imzML",
+        parse_lib="ElementTree",
+    )
+
+    assert centroid_spectrum_mode == SPECTRUM_MODE_CENTROID
+    assert profile_spectrum_mode == SPECTRUM_MODE_PROFILE
+    assert centroid_offsets[0, 0] != centroid_offsets[1, 0]
+    assert profile_offsets[0, 0] == profile_offsets[1, 0]
+    assert _has_cv_param(tmp_path / "auto_centroid.imzML", "IMS:1000031")
+    assert _has_cv_param(tmp_path / "auto_profile.imzML", "IMS:1000030")
 
 
 @pytest.mark.parametrize(
