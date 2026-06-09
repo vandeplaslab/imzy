@@ -29,6 +29,7 @@ CoordinateOrigin = ty.Literal["auto", "zero", "one"]
 OnError = ty.Literal["error", "warn"]
 UserParamValue = str | int | float
 UserParam = ty.Mapping[str, UserParamValue]
+SpectrumTransform = ty.Callable[[int, np.ndarray, np.ndarray], tuple[np.ndarray, np.ndarray]]
 
 IBD_MODE_CONTINUOUS: ty.Literal["continuous"] = "continuous"
 IBD_MODE_PROCESSED: ty.Literal["processed"] = "processed"
@@ -181,12 +182,17 @@ class IMZMLWriter:
         source_path: PathLike | None = None,
         pixel_size: tuple[float, float] | None = None,
         image_shape: tuple[int, int] | None = None,
+        normalization: str | None = None,
+        spectrum_transform: SpectrumTransform | None = None,
         silent: bool = False,
     ) -> Path:
         """Write an imzy reader to imzML."""
         resolved_spectrum_type = _resolve_reader_spectrum_type(reader, spectrum_type)
         resolved_coordinate_origin = _resolve_reader_coordinate_origin(reader, coordinate_origin)
         export_indices = _validate_indices(indices, reader.n_pixels)
+        normalization_scales = _get_normalization_scales(reader, normalization, silent=silent)
+        if spectrum_transform is None:
+            spectrum_transform = _get_reader_spectrum_transform(reader, resolved_spectrum_type)
         if mz_dtype is None:
             mz_dtype = _reader_dtype(reader, "mz_precision", np.float64)
         if intensity_dtype is None:
@@ -225,6 +231,13 @@ class IMZMLWriter:
                     coords = coordinates[index]
                     try:
                         mzs, intensities = reader.get_spectrum(index)
+                        mzs, intensities = _transform_spectrum(
+                            index,
+                            mzs,
+                            intensities,
+                            normalization_scales=normalization_scales,
+                            spectrum_transform=spectrum_transform,
+                        )
                     except Exception as error:
                         if writer.on_error == ON_ERROR_WARN:
                             writer._warn_skipped_spectrum(error, context=f"pixel {index} at {tuple(coords)}")
@@ -722,6 +735,8 @@ def write_imzml(
     source_path: PathLike | None = None,
     pixel_size: tuple[float, float] | None = None,
     image_shape: tuple[int, int] | None = None,
+    normalization: str | None = None,
+    spectrum_transform: SpectrumTransform | None = None,
     silent: bool = False,
 ) -> Path:
     """Write an imzy reader to imzML."""
@@ -739,8 +754,59 @@ def write_imzml(
         source_path=source_path,
         pixel_size=pixel_size,
         image_shape=image_shape,
+        normalization=normalization,
+        spectrum_transform=spectrum_transform,
         silent=silent,
     )
+
+
+def _get_normalization_scales(reader: BaseReader, normalization: str | None, *, silent: bool) -> np.ndarray | None:
+    if normalization is None:
+        return None
+    normalizations = reader.get_normalizations(silent=silent)
+    try:
+        return np.asarray(normalizations[normalization], dtype=np.float32)
+    except KeyError:
+        valid = ", ".join(normalizations)
+        raise ValueError(f"Invalid normalization: {normalization!r}. Expected one of: {valid}.")
+
+
+def _get_reader_spectrum_transform(
+    reader: BaseReader,
+    spectrum_type: ResolvedSpectrumType,
+) -> SpectrumTransform | None:
+    if reader.is_centroid or spectrum_type != SPECTRUM_TYPE_CENTROID:
+        return None
+
+    def centroid_transform(
+        _index: int,
+        mzs: np.ndarray,
+        intensities: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        from ims_utils.spectrum import parabolic_centroid
+
+        return parabolic_centroid(mzs, intensities)
+
+    return centroid_transform
+
+
+def _transform_spectrum(
+    index: int,
+    mzs: ty.Iterable[float],
+    intensities: ty.Iterable[float],
+    *,
+    normalization_scales: np.ndarray | None,
+    spectrum_transform: SpectrumTransform | None,
+) -> tuple[np.ndarray, np.ndarray]:
+    mz_array = np.asarray(mzs)
+    intensity_array = np.asarray(intensities)
+    if spectrum_transform is not None:
+        mz_array, intensity_array = spectrum_transform(index, mz_array, intensity_array)
+        mz_array = np.asarray(mz_array)
+        intensity_array = np.asarray(intensity_array)
+    if normalization_scales is not None:
+        intensity_array = intensity_array * normalization_scales[index]
+    return mz_array, intensity_array
 
 
 def _resolve_output_paths(output_path: PathLike) -> tuple[Path, Path, Path]:
