@@ -2,154 +2,218 @@
 
 <div align="center">
 
-[![Dependencies Status](https://img.shields.io/badge/dependencies-up%20to%20date-brightgreen.svg)](https://github.com/imzy/imzy/pulls?utf8=%E2%9C%93&q=is%3Apr%20author%3Aapp%2Fdependabot)
 [![Python Version](https://img.shields.io/pypi/pyversions/imzy.svg)](https://pypi.org/project/imzy/)
-[![Python package index](https://img.shields.io/pypi/v/imzy.svg)](https://pypi.org/project/imzy)
-[![Python package index download statistics](https://img.shields.io/pypi/dm/imzy.svg)](https://pypistats.org/packages/imzy)
-
-[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
-[![Security: bandit](https://img.shields.io/badge/security-bandit-green.svg)](https://github.com/PyCQA/bandit)
-[![Pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit&logoColor=white)](https://github.com/imzy/imzy/blob/main/.pre-commit-config.yaml)
+[![PyPI](https://img.shields.io/pypi/v/imzy.svg)](https://pypi.org/project/imzy)
+[![Downloads](https://img.shields.io/pypi/dm/imzy.svg)](https://pypistats.org/packages/imzy)
 [![Code coverage](https://codecov.io/gh/vandeplaslab/imzy/branch/main/graph/badge.svg)](https://codecov.io/gh/vandeplaslab/imzy)
-[![Semantic Versions](https://img.shields.io/badge/%20%20%F0%9F%93%A6%F0%9F%9A%80-semantic--versions-e10079.svg)](https://github.com/imzy/imzy/releases)
-[![License](https://img.shields.io/github/license/imzy/imzy)](https://github.com/imzy/imzy/blob/main/LICENSE)
+[![Pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit&logoColor=white)](https://github.com/vandeplaslab/imzy/blob/main/.pre-commit-config.yaml)
+[![License](https://img.shields.io/github/license/vandeplaslab/imzy)](https://github.com/vandeplaslab/imzy/blob/main/LICENSE)
 
-imzy: A simple reader interface to imzML, Bruker (.tdf/.tsf) and Waters (.raw) file formats
+Read, inspect, process, and export imaging mass spectrometry datasets from Python.
 
 </div>
 
-## Getting started
-Install using pip
+imzy provides a common reader interface for imzML, Bruker, and Waters imaging mass spectrometry data. It includes tools
+for reading spectra, extracting ion images, computing common normalization factors, exporting centroid tables to HDF5 or
+Zarr, and converting supported inputs to imzML.
+
+## Installation
+
+Install the core package with pip:
+
 ```bash
 pip install imzy
 ```
 
-Analyse your data
-```python
-import numpy as np
-from imzy import get_reader
+Optional storage and plotting extras are available when you need them:
 
-PATH_TO_FILE = "path/to/file"
-
-# we currently support imzML, Bruker .d (.tsf/.tdf) formats
-reader = get_reader(PATH_TO_FILE)
-# will extract mass spectrum for pixel index '0'
-mz_x, mz_y = reader.get_mass_spectrum(0)
-# will extract summed mass spectrum for pixel indices 0-100
-mz_x, mz_y = reader.get_summed_spectrum(np.arange(100))
-# iterate over all mass spectra in the dataset
-for mz_x, mz_y in reader.spectra_iter():
-  ...
-# get tic array
-tic = reader.get_tic()
-# this array is 1d so needs to be reshaped to 2d if you want to view it as an image
-tic = reader.reshape(tic)
-# will extract the 885.549 ion image with 10 ppm window around it
-image = reader.get_ion_image(885.549, ppm=10)
-# you can also extract multiple images at the same time (which is much more efficient since the spectra
-# only need to be loaded into memory once)
-mzs = [...] # list of m/zs to extract
-images = reader.get_ion_images(mzs, tol=0.05)
+```bash
+pip install "imzy[hdf5]"
+pip install "imzy[zarr]"
+pip install "imzy[plot]"
+pip install "imzy[all]"
 ```
 
-## Supported formats
-- imzML on Windows, macOS and Linux
-- Bruker (.tdf/.tsf) on Windows and Linux
+imzy requires Python 3.10 or newer.
 
+## Supported Formats
+
+| Format | Support |
+| --- | --- |
+| imzML (`.imzML`/`.ibd`) | Windows, macOS, Linux |
+| Bruker TSF/TDF/NeoFlex (`.d`) | Windows, Linux |
+| Waters MassLynx (`.raw`) | Windows |
+
+Bruker TDF ion mobility data can be read, but imzML export currently writes spectra collapsed to the m/z axis.
+
+## Python Usage
+
+```python
+import numpy as np
+from imzy import get_reader, write_imzml
+
+path = "path/to/dataset"
+reader = get_reader(path)
+
+# Read one spectrum by pixel index.
+mzs, intensities = reader.get_spectrum(0)
+
+# Sum spectra across selected pixels.
+summed_mzs, summed_intensities = reader.get_summed_spectrum(np.arange(100))
+
+# Iterate through spectra. Each item is an (m/z, intensity) pair.
+for mzs, intensities in reader.spectra_iter():
+    ...
+
+# Create a 2-D total ion current image.
+tic_image = reader.reshape(reader.get_tic())
+
+# Extract one ion image, using either a tolerance in Da or ppm.
+ion_image = reader.get_ion_image(885.549, ppm=10)
+
+# Extract many ion images in one pass.
+target_mzs = [885.549, 886.552, 887.555]
+images = reader.get_ion_images(target_mzs, tol=0.05)
+
+# Export any imzy reader to imzML.
+output_path = write_imzml(reader, "converted_dataset", silent=True)
+```
+
+Useful reader properties include `n_pixels`, `image_shape`, `x_coordinates`, `y_coordinates`, `xyz_coordinates`,
+`mz_min`, `mz_max`, `is_centroid`, `rois`, `x_pixel_size`, and `y_pixel_size`.
+
+## Command Line Usage
+
+The `imzy` command can convert any supported input to imzML:
+
+```bash
+imzy convert path/to/input path/to/output --silent
+```
+
+Common options:
+
+```bash
+imzy convert path/to/input path/to/output \
+  --spectrum-type auto \
+  --ibd-mode auto \
+  --normalization TIC \
+  --overwrite
+```
+
+Use `--roi` to export a specific Bruker TSF/TDF/NeoFlex region of interest:
+
+```bash
+imzy convert path/to/bruker.d path/to/output --roi 0
+```
+
+Run `imzy convert --help` for the full list of options.
+
+## Normalization and Batch Exports
+
+Readers can compute normalization multipliers for common strategies such as TIC, RMS, median, percentile-filtered TIC,
+and vector norms:
+
+```python
+normalizations = reader.get_normalizations(silent=True)
+tic_scales = normalizations["TIC"]
+```
+
+For larger extraction jobs, write flat centroid tables to optional HDF5 or Zarr stores:
+
+```python
+target_mzs = [734.569, 760.585, 782.567]
+
+hdf5_path = reader.to_hdf5("centroids.h5", target_mzs, ppm=10, silent=True)
+zarr_path = reader.to_zarr("centroids.zarr", target_mzs, ppm=10, silent=True)
+```
+
+Install `imzy[hdf5]` or `imzy[zarr]` before using those storage backends.
+
+## imzML Writing
+
+Use `write_imzml` for reader-to-reader conversion, or `IMZMLWriter` when you need to add spectra manually:
+
+```python
+from imzy import IMZMLWriter
+
+with IMZMLWriter("manual_export", spectrum_type="centroid", ibd_mode="processed") as writer:
+    writer.add_spectrum([100.0, 101.0], [10.0, 50.0], (1, 1))
+    writer.add_spectrum([100.0, 101.0], [20.0, 30.0], (2, 1))
+```
+
+Writer options include `spectrum_type`, `ibd_mode`, `coordinate_origin`, `normalization`, `indices`, `overwrite`, and
+`on_error`.
 
 ## Plugins
 
-It is now possible to create your own readers by implementing the `imzy.hookspec` interface. This allows you to create
-your own readers for any format you want. You can then register your reader with imzy by adding the following to your
-`setup.py` or `pyproject.toml` or `setup.cfg` file:
-
-If you have project named `your_project_name`, you could add a file `imzy.py` to your project with the following code:
+Custom readers can be registered through the `imzy.plugins` entry point. Implement the `imzy_reader` hook and return a
+reader when the input path is supported:
 
 ```python
+from __future__ import annotations
+
+import typing as ty
+from pathlib import Path
+
+from koyo.typing import PathLike
+
 from imzy import BaseReader
 from imzy.hookspec import hook_impl
 
+
 class YourReader(BaseReader):
-  """Your reader class."""
-  
+    """Reader for your custom imaging format."""
+
 
 @hook_impl
-def imzy_reader(path: str, **kwargs) -> ty.Optional[YourReader]:
-    """Return YourReader if path is valid."""
-    ...
+def imzy_reader(path: PathLike, **kwargs: ty.Any) -> BaseReader | None:
+    """Return a reader when path points to a supported dataset."""
+    if Path(path).suffix != ".yourformat":
+        return None
+    return YourReader(path, **kwargs)
 ```
 
-In the `pyproject.toml` file, please define the interface:
+Then expose the module from your package metadata:
+
 ```toml
-[options.entry_points."imzy.plugins"]
+[project.entry-points."imzy.plugins"]
 your_project_name = "your_project_name.imzy"
 ```
 
-Your reader will be automatically detected when the `ImzyPluginManager` is initialized, which happens when the
-`get_reader` function is called. You can then use your reader as follows:
+When `get_reader()` is called, imzy registers built-in readers and then loads installed plugins from this entry point.
 
+## Development
 
-## Planned features
-- improve performance
-- improve tests
-- add better caching support
-- add support for Thermo (.raw) files
-
-## Contributing
-
-### Initialize your code
-
-1. Initialize `git` inside your repo:
-
-```bash
-cd imzy && git init
-```
-
-2. Create conda environment. We are using `imzy` as its name.
-
-```bash
-conda create -n imzy python=3.9
-```
-
-3. Initialize and install `pre-commit` hooks:
+Install the project in development mode and set up the local checks:
 
 ```bash
 make develop
 make pre-commit-install
 ```
 
-4. Run the codestyle:
+Run the main checks before opening a change:
 
 ```bash
 make codestyle
+pytest
 ```
 
-5. Upload initial code to GitHub:
+See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines and [SECURITY.md](SECURITY.md) for reporting security
+issues.
 
-```bash
-git add .
-git commit -m ":tada: Initial commit"
-git branch -M main
-git remote add origin https://github.com/imzy/imzy.git
-git push -u origin main
-```
+## License
 
+This project is licensed under the BSD 3-Clause License. See [LICENSE](LICENSE) for details.
 
-## 🛡 License
-
-[![License](https://img.shields.io/github/license/vandeplaslab/imzy)](https://github.com/vandeplaslab/imzy/blob/main/LICENSE)
-
-This project is licensed under the terms of the `BSD-3` license. See [LICENSE](https://github.com/imzy/imzy/blob/main/LICENSE) for more details.
-
-## 📃 Citation
+## Citation
 
 ```bibtex
 @misc{imzy,
-  author = {imzy},
-  title = {imzy: A new reader/writer interface to imzML and other imaging mass spectrometry formats.},
+  author = {Migas, Lukasz G. and contributors},
+  title = {imzy: A reader and writer interface for imzML and other imaging mass spectrometry formats},
   year = {2022},
   publisher = {GitHub},
   journal = {GitHub repository},
-  howpublished = {\url{https://github.com/imzy/imzy}}
+  howpublished = {\url{https://github.com/vandeplaslab/imzy}}
 }
 ```
