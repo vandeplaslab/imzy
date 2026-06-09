@@ -59,11 +59,13 @@ class DummyReader(BaseReader):
         *,
         is_centroid: bool = True,
         failing_indices: set[int] | None = None,
+        normalizations: dict[str, np.ndarray] | None = None,
     ) -> None:
         self._spectra_data = spectra
         self._xyz_coordinates = coordinates
         self._is_centroid = is_centroid
         self._failing_indices = failing_indices or set()
+        self._normalizations = normalizations
         super().__init__("dummy")
 
     @property
@@ -120,6 +122,12 @@ class DummyReader(BaseReader):
             indices = self.pixels
         for index in indices:
             yield self._read_spectrum(int(index))
+
+    def get_normalizations(self, silent: bool = False) -> dict[str, np.ndarray]:
+        """Return test normalizations when provided."""
+        if self._normalizations is not None:
+            return self._normalizations
+        return super().get_normalizations(silent=silent)
 
 
 def test_manual_centroid_processed_roundtrip(tmp_path: Path) -> None:
@@ -469,3 +477,55 @@ def test_write_imzml_indices_validation(tmp_path: Path) -> None:
         write_imzml(reader, tmp_path / "bad_index", indices=[1], silent=True)
     with pytest.raises(ValueError, match="integers"):
         write_imzml(reader, tmp_path / "bad_float_index", indices=[0.5], silent=True)
+
+
+def test_write_imzml_centroids_profile_input_when_requested(tmp_path: Path) -> None:
+    """Convert profile spectra to centroid spectra when centroid export is requested."""
+    spectra = [
+        (
+            np.asarray([100.0, 101.0, 102.0], dtype=np.float64),
+            np.asarray([0.0, 10.0, 0.0], dtype=np.float32),
+        )
+    ]
+    coordinates = np.asarray([[0, 0, 0]])
+    reader = DummyReader(spectra, coordinates, is_centroid=False)
+
+    output_path = write_imzml(reader, tmp_path / "profile_to_centroid", spectrum_type="centroid", silent=True)
+    exported = IMZMLReader(output_path, parse_lib="ElementTree")
+    *_, spectrum_mode, _mz_min, _mz_max = init_metadata(output_path, parse_lib="ElementTree")
+
+    assert spectrum_mode == SPECTRUM_MODE_CENTROID
+    np.testing.assert_array_equal(exported.get_spectrum(0)[0], np.asarray([101.0]))
+    np.testing.assert_array_equal(exported.get_spectrum(0)[1], np.asarray([10.0], dtype=np.float32))
+
+
+def test_write_imzml_applies_selected_normalization(tmp_path: Path) -> None:
+    """Scale exported intensities with the selected normalization multiplier."""
+    spectra = [
+        (np.asarray([100.0]), np.asarray([2.0], dtype=np.float32)),
+        (np.asarray([101.0]), np.asarray([4.0], dtype=np.float32)),
+    ]
+    coordinates = np.asarray([[0, 0, 0], [1, 0, 0]])
+    reader = DummyReader(
+        spectra,
+        coordinates,
+        normalizations={"TIC": np.asarray([2.0, 0.5], dtype=np.float32)},
+    )
+
+    output_path = write_imzml(reader, tmp_path / "normalized", normalization="TIC", silent=True)
+    exported = IMZMLReader(output_path, parse_lib="ElementTree")
+
+    np.testing.assert_array_equal(exported.get_spectrum(0)[1], np.asarray([4.0], dtype=np.float32))
+    np.testing.assert_array_equal(exported.get_spectrum(1)[1], np.asarray([2.0], dtype=np.float32))
+
+
+def test_write_imzml_rejects_unknown_normalization(tmp_path: Path) -> None:
+    """Reject unsupported normalization names before writing output files."""
+    spectra = [(np.asarray([100.0]), np.asarray([1.0], dtype=np.float32))]
+    coordinates = np.asarray([[0, 0, 0]])
+    reader = DummyReader(spectra, coordinates, normalizations={"TIC": np.asarray([1.0], dtype=np.float32)})
+
+    with pytest.raises(ValueError, match="Invalid normalization"):
+        write_imzml(reader, tmp_path / "bad_normalization", normalization="missing", silent=True)
+    assert not (tmp_path / "bad_normalization.imzML").exists()
+    assert not (tmp_path / "bad_normalization.ibd").exists()

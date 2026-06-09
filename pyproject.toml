@@ -42,6 +42,7 @@ classifiers = [
 ]
 dynamic = ["version"]
 dependencies = [
+  "click",
   "numpy",
   "scipy",
   "numba",
@@ -52,6 +53,9 @@ dependencies = [
   "ims-utils>=0.1.8",
   "yoki5",
 ]
+
+[project.scripts]
+imzy = "imzy.cli:main"
 
 # extras
 # https://peps.python.org/pep-0621/#dependencies-optional-dependencies
