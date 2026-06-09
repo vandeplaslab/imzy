@@ -40,16 +40,18 @@ __version__: str = get_version()
 __all__ = (
     "BaseReader",
     "H5CentroidsStore",
+    "H5NormalizationStore",
     "IMZMLReader",
+    "IMZMLWriter",
     "InMemoryStore",
     "NeoFlexReader",
     "TDFReader",
     "TSFReader",
     "WatersReader",
     "ZarrCentroidsStore",
-    "get_reader",
     "get_normalizations",
-    "H5NormalizationStore",
+    "get_reader",
+    "write_imzml",
 )
 # Map exported names -> (module, attribute)
 _LAZY_IMPORTS = {
@@ -68,6 +70,9 @@ _LAZY_IMPORTS = {
     # Normalizations
     "get_normalizations": ("imzy._normalizations", "get_normalizations"),
     "H5NormalizationStore": ("imzy._normalizations", "H5NormalizationStore"),
+    # Writers
+    "IMZMLWriter": ("imzy._writers", "IMZMLWriter"),
+    "write_imzml": ("imzy._writers", "write_imzml"),
 }
 
 
@@ -102,3 +107,4 @@ if ty.TYPE_CHECKING:
         WatersReader,
         get_reader,
     )
+    from imzy._writers import IMZMLWriter, write_imzml
