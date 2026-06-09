@@ -242,7 +242,12 @@ class IMZMLWriter:
         *,
         error_context: str | None = None,
     ) -> bool:
-        """Add one spectrum to the output files."""
+        """Add one spectrum to the output files.
+
+        Coordinates must be provided as ``(x, y)`` or ``(x, y, z)`` in imzML axis order, not NumPy
+        row/column order. Two-dimensional coordinates are written with ``z=1``. If
+        ``coordinate_origin="zero"`` is configured, each coordinate value is shifted by one before export.
+        """
         if self._closed:
             raise ValueError("Cannot add spectra after the writer has been closed.")
 
@@ -424,7 +429,7 @@ class IMZMLWriter:
 
     def _normalize_coordinates(self, coords: ty.Sequence[int | float]) -> tuple[int, int, int]:
         if len(coords) not in {2, 3}:
-            raise ValueError("Coordinates must contain x/y or x/y/z values.")
+            raise ValueError("Coordinates must contain x/y or x/y/z values in imzML axis order.")
         normalized = [int(value) for value in coords]
         if self.coordinate_origin == COORDINATE_ORIGIN_ZERO:
             normalized = [value + 1 for value in normalized]

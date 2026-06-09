@@ -240,6 +240,15 @@ def test_manual_empty_spectrum_warns_and_skips(tmp_path: Path) -> None:
     np.testing.assert_array_equal(reader.get_tic(silent=True), np.asarray([1.0, 3.0]))
 
 
+def test_manual_coordinates_are_xy_order(tmp_path: Path) -> None:
+    """Treat manual writer coordinates as x/y axis order."""
+    with IMZMLWriter(tmp_path / "manual_xy") as writer:
+        writer.add_spectrum([100.0], [1.0], (7, 3))
+
+    reader = IMZMLReader(tmp_path / "manual_xy.imzML", parse_lib="ElementTree")
+    np.testing.assert_array_equal(reader.xyz_coordinates, np.asarray([[7, 3, 1]]))
+
+
 def test_reader_empty_spectrum_warns_and_skips(tmp_path: Path) -> None:
     """Skip reader pixels without m/z peaks."""
     spectra = [
