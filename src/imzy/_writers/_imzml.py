@@ -815,7 +815,7 @@ def _resolve_output_paths(output_path: PathLike) -> tuple[Path, Path, Path]:
         base_path = path.with_suffix("")
     else:
         base_path = path
-    return base_path, base_path.with_suffix(".imzML"), base_path.with_suffix(".ibd")
+    return base_path, base_path.parent / f"{base_path.name}.imzML",  base_path.parent / f"{base_path.name}.ibd"
 
 
 def _resolve_temp_output_paths(imzml_path: Path, ibd_path: Path) -> tuple[Path, Path]:
