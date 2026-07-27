@@ -819,7 +819,7 @@ def _resolve_output_paths(output_path: PathLike) -> tuple[Path, Path, Path]:
 
 
 def _resolve_temp_output_paths(imzml_path: Path, ibd_path: Path) -> tuple[Path, Path]:
-    token = uuid.uuid4().hex
+    token = uuid.uuid4().hex[0:6]  # shorten it, so it fits on Windows Paths
     temp_imzml_path = imzml_path.with_name(f".{imzml_path.name}.{token}.tmp")
     temp_ibd_path = ibd_path.with_name(f".{ibd_path.name}.{token}.tmp")
     return temp_imzml_path, temp_ibd_path
