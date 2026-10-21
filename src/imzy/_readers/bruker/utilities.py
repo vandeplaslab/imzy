@@ -49,3 +49,42 @@ def get_sparse_data_from_buffer(
                 rows.append(mz_val)
                 cols.append(col)
     return np.asarray(data), np.asarray(rows), np.asarray(cols)
+
+
+def get_pixel_size_from_positions(
+    positions: np.ndarray, decimals: int = 1, min_pixel_size: float = 0.1, max_pixel_size: float = 1000.0
+) -> float:
+    """Get the pixel size from the motor positions.
+
+    Parameters
+    ----------
+    positions : np.ndarray
+        array containing the motor positions
+    decimals : int, optional
+        number of decimals to round the motor positions, by default 1
+    min_pixel_size : float, optional
+        minimum pixel size to consider, by default 0.1
+    max_pixel_size : float, optional
+        maximum pixel size to consider, by default 1000.0
+
+    Returns
+    -------
+    pixel_size : float
+        pixel size in mm
+    """
+    # Calculate the distance between the motor positions, knowing that the motor can move in y or x position and are not
+    # necessary next to each other. The problem is that they are also not integers or same floats, so we have to make
+    # some assumptions
+    spacings = []
+    for axis in range(2):
+        coords = np.unique(np.round(positions[:, axis], decimals))
+        diffs = np.diff(coords)
+
+        valid = diffs[(diffs >= min_pixel_size) & (diffs <= max_pixel_size)]
+
+        if valid.size:
+            spacings.append(np.min(valid))
+
+    if not spacings:
+        raise ValueError("Could not determine pixel spacing.")
+    return float(np.round(min(spacings), decimals))

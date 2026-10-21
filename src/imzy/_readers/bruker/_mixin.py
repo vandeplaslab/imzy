@@ -92,10 +92,21 @@ class BrukerBaseReader(BaseReader):
 
         This method will throw an error if the pixel size is not equal in both dimensions.
         """
+        from imzy._readers.bruker.utilities import get_pixel_size_from_positions
+
         if self._pixel_size is None:
-            with self.sql_reader() as conn:
-                cursor = conn.execute("SELECT SpotSize FROM MaldiFrameLaserInfo")
-                self._pixel_size = float(cursor.fetchone()[0])
+            data = self._read_cache("motor_positions_cache", ["pixel_size"])
+            # load data from cache
+            if data["pixel_size"] is not None:
+                self._pixel_size = data["pixel_size"]
+            else:
+                with self.sql_reader() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT MotorPositionX, MotorPositionY FROM MaldiFrameInfo")
+                    motor_positions = np.array(cursor.fetchall())
+                pixel_size = get_pixel_size_from_positions(motor_positions)
+                self._write_cache("motor_positions_cache", data={"pixel_size": pixel_size})
+                self._pixel_size = pixel_size
         return self._pixel_size
 
     @property
