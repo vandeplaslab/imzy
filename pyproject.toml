@@ -9,6 +9,7 @@ source = "vcs"
 include = [
     "src", "tests", "rust", "hatch_build.py", "README.md", "LICENSE",
     "scripts/benchmark_imzml.py", "scripts/audit_native_wheel.py", "benchmarks",
+    "asv.conf.json", "scripts/benchmark_history.py",
 ]
 exclude = ["rust/target", "src/imzy/_imzml_rust*.so", "src/imzy/_imzml_rust*.pyd"]
 
@@ -118,6 +119,14 @@ test = [
 ]
 
 [dependency-groups]
+benchmark = [
+    "asv==0.6.6",
+    "build==1.6.1",
+    "hatchling==1.32.4",
+    "hatch-vcs==0.5.0",
+    "maturin==1.15.0",
+    "pytest>=8.3.5",
+]
 test = [
     "imzy[all]",
     "pytest>=8.3.5",

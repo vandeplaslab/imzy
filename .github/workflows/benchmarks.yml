@@ -1,0 +1,178 @@
+name: Benchmarks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "0 0 * * 0"
+  workflow_dispatch:
+    inputs:
+      initialize_history:
+        description: Initialize empty history for the first Pages deployment only
+        type: boolean
+        default: false
+      recovery_run_id:
+        description: Recover history from a successful Benchmarks run ID instead of the live site
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+# Serialize the entire restore/run/deploy cycle. PR checks have independent groups.
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('benchmarks-pr-{0}', github.event.pull_request.number) || 'benchmarks-pages' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  IMZY_BUILD_RUST: "1"
+  IMZY_REQUIRE_RUST: "1"
+  NUMBA_DISABLE_JIT: "0"
+  NUMBA_NUM_THREADS: "1"
+  RAYON_NUM_THREADS: "2"
+  OPENBLAS_NUM_THREADS: "1"
+  OMP_NUM_THREADS: "1"
+  MKL_NUM_THREADS: "1"
+  MPLBACKEND: Agg
+
+jobs:
+  benchmark:
+    name: Benchmark and build site
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      pages: read
+      deployments: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v8.2.0
+        with:
+          version: "0.7.12"
+          python-version: "3.12.13"
+          enable-cache: true
+          cache-dependency-glob: benchmarks/requirements.txt
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.99.1"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - name: Install pinned benchmark environment and native wheel
+        run: |
+          uv venv --python 3.12.13
+          uv pip install --python .venv/bin/python -r benchmarks/requirements.txt
+          uv pip install --python .venv/bin/python --no-deps --no-build-isolation .
+          .venv/bin/python -c 'import imzy._imzml_rust'
+
+      - name: Check benchmark correctness and history handling
+        run: .venv/bin/python -m pytest -q tests/test_benchmarks.py tests/test_benchmark_history.py
+
+      - name: Configure Pages
+        id: pages
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        uses: actions/configure-pages@v5
+
+      - name: Restore published history
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && !inputs.recovery_run_id
+        env:
+          SITE_URL: ${{ steps.pages.outputs.base_url }}
+          INITIALIZE_HISTORY: ${{ github.event_name == 'workflow_dispatch' && inputs.initialize_history && '1' || '0' }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          initialize=()
+          if [ "$INITIALIZE_HISTORY" = "1" ]; then
+            initialize+=(--initialize)
+          fi
+          .venv/bin/python scripts/benchmark_history.py restore --site-url "$SITE_URL" "${initialize[@]}"
+
+      - name: Recover history from a successful workflow run
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.recovery_run_id
+        env:
+          RECOVERY_RUN_ID: ${{ inputs.recovery_run_id }}
+          INITIALIZE_HISTORY: ${{ inputs.initialize_history && '1' || '0' }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [[ ! "$RECOVERY_RUN_ID" =~ ^[0-9]+$ || "$INITIALIZE_HISTORY" = "1" ]]; then
+            echo "Recovery requires a numeric run ID and initialization disabled."
+            exit 1
+          fi
+          source=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RECOVERY_RUN_ID" --jq '[.path, .head_branch, .conclusion] | join("|")')
+          if [ "$source" != ".github/workflows/benchmarks.yml|main|success" ]; then
+            echo "Recovery must use a successful main run of this benchmark workflow."
+            exit 1
+          fi
+          artifact=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RECOVERY_RUN_ID/artifacts" --jq '[.artifacts[] | select(.name | startswith("benchmark-history-")) | select(.expired | not)] | sort_by(.created_at) | last | .name')
+          if [ -z "$artifact" ] || [ "$artifact" = "null" ]; then
+            echo "No retained recovery artifact was found."
+            exit 1
+          fi
+          gh run download "$RECOVERY_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$artifact" --dir .asv/recovery
+          .venv/bin/python scripts/benchmark_history.py restore --archive .asv/recovery/html/asv-results.tar.gz
+
+      - name: Register hardware and software identity
+        id: machine
+        run: |
+          machine=$(.venv/bin/python scripts/benchmark_history.py machine --label github-ubuntu-24.04-x86_64)
+          echo "name=$machine" >> "$GITHUB_OUTPUT"
+
+      - name: Validate ASV discovery
+        run: .venv/bin/python -m asv check --python=same
+
+      - name: Smoke check all benchmark cases
+        if: github.event_name == 'pull_request' || github.ref != 'refs/heads/main'
+        env:
+          ASV_MACHINE: ${{ steps.machine.outputs.name }}
+        run: .venv/bin/python -m asv run --python=same --quick --dry-run --show-stderr --machine "$ASV_MACHINE"
+
+      - name: Benchmark checked-out main revision
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          ASV_MACHINE: ${{ steps.machine.outputs.name }}
+        run: .venv/bin/python -m asv run --python=same --set-commit-hash "$GITHUB_SHA" --record-samples --show-stderr --machine "$ASV_MACHINE"
+
+      - name: Generate site and include raw history
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        run: |
+          .venv/bin/python scripts/benchmark_history.py check
+          .venv/bin/python -m asv publish
+          .venv/bin/python scripts/benchmark_history.py pack
+
+      - name: Save recovery copy
+        if: always() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v7
+        with:
+          name: benchmark-history-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            .asv/history
+            .asv/html/asv-results.tar.gz
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 90
+
+      - name: Upload Pages site
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: .asv/html
+
+  deploy:
+    name: Publish benchmark site
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: benchmark
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

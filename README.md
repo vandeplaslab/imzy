@@ -235,7 +235,16 @@ cargo fmt --manifest-path rust/Cargo.toml -- --check
 See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines and [SECURITY.md](SECURITY.md) for reporting security
 issues.
 
-After editing Rust sources, rerun the editable installation to rebuild the extension. To benchmark both backends:
+### Performance benchmarks
+
+The [benchmark website](https://vandeplaslab.github.io/imzy/) tracks Python and Rust performance across main revisions
+using Airspeed Velocity (ASV). It covers reader initialization, spectra, ion images, TICs, normalizations, and imzML,
+HDF5, and Zarr exports. Results publish after main changes and weekly; pull requests run correctness and smoke checks.
+
+See the [benchmark guide](benchmarks/README.md) for setup, local runs, methodology, and GitHub Pages initialization.
+
+After editing Rust sources, rerun the editable installation to rebuild the extension. The standalone backend comparison
+also remains available:
 
 ```bash
 uv run python scripts/benchmark_imzml.py --output benchmark.json

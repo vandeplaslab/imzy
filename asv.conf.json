@@ -1,0 +1,33 @@
+{
+    "version": 1,
+    "project": "imzy",
+    "project_url": "https://github.com/vandeplaslab/imzy",
+    "repo": ".",
+    "branches": ["main"],
+    "show_commit_url": "https://github.com/vandeplaslab/imzy/commit/",
+    "environment_type": "uv",
+    "pythons": ["3.12.13"],
+    "benchmark_dir": "benchmarks",
+    "env_dir": ".asv/env",
+    "results_dir": ".asv/history/results",
+    "html_dir": ".asv/html",
+    "build_command": [
+        "python -m pip install -r {conf_dir}/benchmarks/requirements.txt",
+        "python -m build --wheel --no-isolation --outdir {build_cache_dir} {build_dir}"
+    ],
+    "install_command": ["in-dir={env_dir} python -m pip install --no-deps {wheel_file}"],
+    "matrix": {
+        "env": {"IMZY_BUILD_RUST": ["1"]},
+        "env_nobuild": {
+            "NUMBA_DISABLE_JIT": ["0"],
+            "NUMBA_NUM_THREADS": ["1"],
+            "RAYON_NUM_THREADS": ["2"],
+            "OPENBLAS_NUM_THREADS": ["1"],
+            "OMP_NUM_THREADS": ["1"],
+            "MKL_NUM_THREADS": ["1"]
+        }
+    },
+    "default_benchmark_timeout": 180,
+    "install_timeout": 1200,
+    "build_cache_size": 0
+}
