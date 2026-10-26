@@ -16,6 +16,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  wheels:
+    uses: ./.github/workflows/wheels.yml
+
   check-manifest:
     name: Check Manifest
     runs-on: ubuntu-latest
@@ -25,16 +28,27 @@ jobs:
       - run: uvx check-manifest
 
   test:
-    name: Test (${{ matrix.os }} py${{ matrix.python-version }})
-    runs-on: ${{ matrix.os }}
+    name: Test (${{ matrix.platform.name }} py${{ matrix.python-version }})
+    needs: wheels
+    runs-on: ${{ matrix.platform.os }}
     env:
       UV_NO_SYNC: "1"
       UV_MANAGED_PYTHON: "1"
+      IMZY_REQUIRE_RUST: "1"
+      UV_CONFIG_FILE: tests/uv-wheel.toml
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        platform:
+          - {os: ubuntu-latest, name: linux-x86_64}
+          - {os: windows-latest, name: windows-x86_64}
+          - {os: macos-15-intel, name: macos-x86_64}
+          - {os: macos-latest, name: macos-arm64}
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+        # Numba/llvmlite do not provide Intel macOS wheels for Python 3.14.
+        exclude:
+          - platform: {os: macos-15-intel, name: macos-x86_64}
+            python-version: "3.14"
 
     steps:
       - uses: actions/checkout@v6
@@ -46,17 +60,29 @@ jobs:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
 
-      - run: uv sync --no-dev --group test --extra zarr --extra hdf5 --extra plot
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist-${{ matrix.platform.name }}
+          path: wheelhouse
+
+      - run: uv venv
+
+      - name: Install tested native wheel
+        shell: python
+        run: |
+          import glob
+          import subprocess
+          subprocess.run(["uv", "pip", "install", glob.glob("wheelhouse/*.whl")[0] + "[test]"], check=True)
 
       - name: Test
         env:
-          NUMBA_DISABLE_JIT: ${{ matrix.os == 'ubuntu-latest' && '1' || '0' }}
+          NUMBA_DISABLE_JIT: ${{ matrix.platform.os == 'ubuntu-latest' && '1' || '0' }}
         run: uv run coverage run -p -m pytest -v --color=yes
 
       - name: Upload coverage
         uses: actions/upload-artifact@v7
         with:
-          name: covreport-${{ matrix.os }}-py${{ matrix.python-version }}
+          name: covreport-${{ matrix.platform.name }}-py${{ matrix.python-version }}
           path: ./.coverage*
           include-hidden-files: true
 
@@ -64,6 +90,8 @@ jobs:
     name: Combine and Upload Coverage
     needs: test
     runs-on: ubuntu-latest
+    env:
+      IMZY_BUILD_RUST: "0"
 
     steps:
       - uses: actions/checkout@v6
@@ -112,10 +140,12 @@ jobs:
         with:
           python-version: "3.x"
 
-      - name: Build
-        run: |
-          python -m pip install build
-          python -m build
+      - name: Download tested distributions
+        uses: actions/download-artifact@v8
+        with:
+          pattern: dist-*
+          path: dist
+          merge-multiple: true
 
       - name: Publish to TestPyPI
         uses: pypa/gh-action-pypi-publish@release/v1
@@ -141,10 +171,12 @@ jobs:
         with:
           python-version: "3.x"
 
-      - name: Build
-        run: |
-          python -m pip install build
-          python -m build
+      - name: Download tested distributions
+        uses: actions/download-artifact@v8
+        with:
+          pattern: dist-*
+          path: dist
+          merge-multiple: true
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
@@ -169,10 +201,12 @@ jobs:
         with:
           python-version: "3.x"
 
-      - name: Build
-        run: |
-          python -m pip install build
-          python -m build
+      - name: Download tested distributions
+        uses: actions/download-artifact@v8
+        with:
+          pattern: dist-*
+          path: dist
+          merge-multiple: true
 
       - uses: softprops/action-gh-release@v3
         with:

@@ -1,0 +1,104 @@
+name: Build distributions
+
+on:
+  workflow_call:
+
+jobs:
+  wheels:
+    name: Wheel (${{ matrix.platform.name }})
+    runs-on: ${{ matrix.platform.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - {os: ubuntu-latest, name: linux-x86_64, arch: x86_64}
+          - {os: windows-latest, name: windows-x86_64, arch: AMD64}
+          - {os: macos-15-intel, name: macos-x86_64, arch: x86_64}
+          - {os: macos-latest, name: macos-arm64, arch: arm64}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v8.2.0
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - name: Build and test native wheel
+        env:
+          CIBW_ARCHS: ${{ matrix.platform.arch }}
+        run: uvx cibuildwheel==4.3.4 --output-dir wheelhouse
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist-${{ matrix.platform.name }}
+          path: wheelhouse/*.whl
+
+  source:
+    name: Verify source distribution
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v8.2.0
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - name: Build source archive and native wheel from the archive
+        env:
+          IMZY_BUILD_RUST: "1"
+        run: uvx --from build pyproject-build
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist-source
+          path: dist/*.tar.gz
+
+  fallback:
+    name: Verify Python fallback wheel
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v8.2.0
+        with:
+          python-version: "3.10"
+          enable-cache: true
+      - name: Build compiler-free wheel
+        env:
+          IMZY_BUILD_RUST: "0"
+        run: uv build --wheel --out-dir fallback-dist
+      - run: uv venv
+      - name: Install fallback wheel
+        shell: python
+        run: |
+          import glob
+          import subprocess
+          subprocess.run(["uv", "pip", "install", glob.glob("fallback-dist/*.whl")[0] + "[test]"], check=True)
+      - name: Verify fallback installation
+        run: uv run --no-sync pytest -q tests/test_imzml.py tests/test_imzml_writer.py tests/test_imzml_native.py
+
+  rust:
+    name: Rust checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - run: cargo fmt --manifest-path rust/Cargo.toml -- --check
+      - run: cargo test --locked --manifest-path rust/Cargo.toml
+      - run: cargo clippy --locked --manifest-path rust/Cargo.toml --all-targets -- -D warnings

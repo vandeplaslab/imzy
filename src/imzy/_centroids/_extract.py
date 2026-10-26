@@ -1,4 +1,8 @@
+from __future__ import annotations
+
+import importlib
 import typing as ty
+from math import prod
 from pathlib import Path
 
 import numpy as np
@@ -13,6 +17,9 @@ from imzy._typing import SpatialInfo
 from imzy.processing import accumulate_peaks_centroid, accumulate_peaks_profile
 from imzy.utilities import _safe_rmtree
 
+if ty.TYPE_CHECKING:
+    import zarr
+
 try:
     import hdf5plugin
 except ImportError:
@@ -25,38 +32,34 @@ except ImportError:
 
 
 def check_zarr() -> None:
-    """Check whether Zarr, dask and rechunker are installed."""
+    """Check whether Zarr and Dask are installed."""
     try:
-        import dask
-        import rechunker
-        import zarr
+        importlib.import_module("dask.array")
+        importlib.import_module("zarr")
     except ImportError:
-        raise ImportError(
-            "Please install `zarr`, `dask` and `rechunker` to continue. You can do `pip install imzy[zarr]"
-        )
+        raise ImportError('Zarr support requires Python 3.11+ and `pip install "imzy[zarr]"`.') from None
 
 
 def create_centroids_zarr(
     input_dir: PathLike,
     zarr_path: PathLike,
     n_peaks: int,
-    mzs: ty.Optional[np.ndarray] = None,
-    mzs_min: ty.Optional[np.ndarray] = None,
-    mzs_max: ty.Optional[np.ndarray] = None,
-    tol: ty.Optional[float] = None,
-    ppm: ty.Optional[float] = None,
-    ys: ty.Optional[np.ndarray] = None,
-    reader_kwargs: ty.Optional[dict[str, ty.Any]] = None,
-):
-    """Create group with datasets inside."""
+    mzs: np.ndarray | None = None,
+    mzs_min: np.ndarray | None = None,
+    mzs_max: np.ndarray | None = None,
+    tol: float | None = None,
+    ppm: float | None = None,
+    ys: np.ndarray | None = None,
+    reader_kwargs: dict[str, ty.Any] | None = None,
+) -> zarr.Array:
+    """Create a Zarr 3 group containing centroid metadata and a temporary array."""
     import zarr
 
     if tol is None and ppm is None:
         raise ValueError("Either `tol` or `ppm` should be specified.")
 
     reader = get_reader(input_dir, **(reader_kwargs or {}))
-    store = zarr.DirectoryStore(str(zarr_path))
-    group = zarr.group(store=store)
+    group = zarr.open_group(str(zarr_path), mode="a", zarr_format=3)
     # add metadata
     group.attrs.update({"ppm": ppm, "tol": tol})
 
@@ -64,20 +67,20 @@ def create_centroids_zarr(
     if n_pixels > reader.n_pixels:
         n_pixels = reader.n_pixels
 
-    array = group.require_dataset(
+    array = group.require_array(
         "array_temp",
         shape=(int(reader.n_pixels), int(n_peaks)),
         chunks=(int(n_pixels), int(n_peaks)),
         dtype=np.float32,
     )
     if mzs is not None:
-        group.create_dataset("mzs", data=mzs, overwrite=True)
+        group.create_array("mzs", data=mzs, overwrite=True)
     if mzs_min is not None:
-        group.create_dataset("mzs_min", data=mzs_min, overwrite=True)
+        group.create_array("mzs_min", data=mzs_min, overwrite=True)
     if mzs_max is not None:
-        group.create_dataset("mzs_max", data=mzs_max, overwrite=True)
+        group.create_array("mzs_max", data=mzs_max, overwrite=True)
     if ys is not None:
-        group.create_dataset("ys", data=ys, overwrite=True)
+        group.create_array("ys", data=ys, overwrite=True)
     return array
 
 
@@ -88,15 +91,16 @@ def extract_centroids_zarr(
     mzs_min: np.ndarray,
     mzs_max: np.ndarray,
     silent: bool = False,
-    sync_path: ty.Optional[str] = None,
-    reader_kwargs: ty.Optional[dict[str, ty.Any]] = None,
-):
-    """Extract peaks for particular subset of frames."""
+    sync_path: str | None = None,
+    reader_kwargs: dict[str, ty.Any] | None = None,
+) -> None:
+    """Extract centroid rows with a single writer; process synchronizers are unsupported."""
     import zarr
 
+    if sync_path is not None:
+        raise ValueError("Zarr 3 does not support process synchronizers.")
     reader = get_reader(input_dir, **(reader_kwargs or {}))
-    synchronizer = zarr.ProcessSynchronizer(sync_path) if sync_path is not None else None
-    ds = zarr.open(str(zarr_path), mode="a", synchronizer=synchronizer)
+    ds = zarr.open_array(str(zarr_path), mode="r+")
     chunk_size = ds.chunks[0]
 
     # profile-mode data is easier to handle so we can create mask once and then use the same mask for every pixel
@@ -122,46 +126,44 @@ def rechunk_zarr_array(
     input_dir: PathLike,
     zarr_path: PathLike,
     target_path: PathLike,
-    chunk_size: ty.Optional[tuple[int, int]] = None,
+    chunk_size: tuple[int, int] | None = None,
     silent: bool = False,
-    reader_kwargs: ty.Optional[dict[str, ty.Any]] = None,
-):
-    """Re-chunk zarr array to more optional format.
+    reader_kwargs: dict[str, ty.Any] | None = None,
+) -> None:
+    """Rechunk a temporary Zarr array with Dask and a 512 MiB block planning limit.
 
     The re-chunking will basically rotate the array to allow much quicker retrieval of ion images at the cost of
     reducing performance of retrieving spectra.
     """
+    import dask.array as dsa
     import zarr
     from dask.diagnostics import ProgressBar
-    from rechunker import rechunk
 
-    mobj = get_reader(input_dir, **(reader_kwargs or {}))
-    ds = zarr.open(str(zarr_path), mode="r")
-    temp_path = str(Path(zarr_path) / "intermediate")
+    ds = zarr.open_array(str(zarr_path), mode="r")
 
     if chunk_size is None:
-        n_im = 25  # each chynk will have 25 images
-        if n_im >= ds.shape[1]:
-            n_im = ds.shape[1]
-        chunk_size = (int(mobj.n_pixels), n_im)
+        chunk_size = (int(ds.shape[0]), min(25, int(ds.shape[1])))
 
-    # create re-chunking plan and execute it immediately.
-    rechunk_plan = rechunk(
-        ds,
-        target_chunks=chunk_size,
-        target_store=target_path,
-        temp_store=temp_path,
-        max_mem="512MB",
+    max_bytes = 512 * 1024**2
+    if prod(chunk_size) * ds.dtype.itemsize > max_bytes:
+        raise ValueError("Target chunks must not exceed 512 MiB.")
+    target = zarr.create_array(
+        store=str(target_path),
+        shape=ds.shape,
+        chunks=chunk_size,
+        dtype=ds.dtype,
+        zarr_format=3,
+        overwrite=True,
     )
+    source = dsa.from_zarr(ds).rechunk(chunk_size, block_size_limit=max_bytes)
+    copy = dsa.store(source, target, compute=False, lock=False)
     if silent:
-        rechunk_plan.execute()
+        copy.compute()
     else:
         with ProgressBar():
-            rechunk_plan.execute()
+            copy.compute()
 
-    # clean-up old array
-    _safe_rmtree(temp_path)  # remove the intermediate array
-    _safe_rmtree(zarr_path)  # remove the temporary array
+    _safe_rmtree(zarr_path)
 
 
 def get_chunk_info(n_pixels: int, n_peaks: int, max_mem: float = 512) -> dict[int, np.ndarray]:

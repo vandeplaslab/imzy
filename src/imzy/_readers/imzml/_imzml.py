@@ -2,29 +2,35 @@
 
 from __future__ import annotations
 
+import importlib
+import operator
 import sys
 import typing as ty
 from pathlib import Path
 from warnings import warn
 
 import numpy as np
-from ims_utils.spectrum import get_ppm_axis
+from ims_utils.spectrum import find_between_batch, get_mzs_for_tol, get_ppm_axis
 from koyo.typing import PathLike
 from tqdm import tqdm
 
 from imzy._readers._base import BaseReader
 from imzy._readers.imzml._ontology import get_cv_param
 from imzy.hookspec import hook_impl
+from imzy.processing import accumulate_peaks_centroid, accumulate_peaks_profile
 from imzy.utilities import _auto_guess_ppm
 
 PRECISION_DICT = {"32-bit float": "f", "64-bit float": "d", "32-bit integer": "i", "64-bit integer": "l"}
 SIZE_DICT = {"f": 4, "d": 8, "i": 4, "l": 8}
+DTYPE_DICT = {"f": np.dtype("<f4"), "d": np.dtype("<f8"), "i": np.dtype("<i4"), "l": np.dtype("<i8")}
 SPECTRUM_MODE_CENTROID = "centroid"
 SPECTRUM_MODE_PROFILE = "profile"
 LOWEST_OBSERVED_MZ_ACCESSION = "MS:1000528"
 HIGHEST_OBSERVED_MZ_ACCESSION = "MS:1000527"
 SpectrumMode = ty.Literal["centroid", "profile"]
 MzRange: ty.TypeAlias = tuple[float, float]
+Backend = ty.Literal["auto", "rust", "python"]
+_BLOCK_SIZE = 1024
 
 
 class IMZMLCache:
@@ -62,7 +68,14 @@ class IMZMLCache:
 
 
 class IMZMLReader(BaseReader):
-    """ImzML file reader."""
+    """Read imzML spectra using an optional memory-mapped Rust backend.
+
+    The ``backend`` argument selects ``"auto"`` (Rust when installed), ``"rust"``
+    (required), or ``"python"``. Spectrum arrays are read-only; use ``.copy()``
+    for writable data. Keep the dataset unchanged while readers, arrays, or
+    iterators exist. Closing a reader releases its mapping, but existing arrays
+    and iterators retain their backing storage until they are released.
+    """
 
     _ibd_path: Path | None = None
     _icache_path: Path | None = None
@@ -80,16 +93,103 @@ class IMZMLReader(BaseReader):
         mz_min: float | None = None,
         mz_max: float | None = None,
         parse_lib: str | None = None,
+        *,
+        backend: Backend = "auto",
     ) -> None:
+        if backend not in {"auto", "rust", "python"}:
+            raise ValueError("backend must be 'auto', 'rust', or 'python'.")
         super().__init__(path, auto_profile=auto_profile)
+        self._closed = False
+        self._native: ty.Any = None
+        self._iterator: ty.Iterator[tuple[np.ndarray, np.ndarray]] | None = None
+        self._requested_backend = backend
+        self._parse_lib = parse_lib
         self._mz_min = mz_min
         self._mz_max = mz_max
         self._init(ibd_path, parse_lib=parse_lib)
+        self._init_backend(backend)
         self.resolution = resolution
         self.mz_ppm = _auto_guess_ppm(self.resolution, mz_ppm)
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}<{self.path}; centroid={self.is_centroid}>"
+
+    def _init_backend(self, backend: Backend) -> None:
+        """Validate the index and load the native extension when available."""
+        self._mz_dtype = DTYPE_DICT[self.mz_precision]
+        self._int_dtype = DTYPE_DICT[self.int_precision]
+        offsets = np.array(self.byte_offsets, dtype=np.int64, order="C", copy=True)
+        if offsets.shape != (self.n_pixels, 4):
+            raise ValueError("Expected an (n_pixels, 4) offset array.")
+        file_size = self.ibd_path.stat().st_size
+        for column, width in ((0, self._mz_size), (2, self._int_size)):
+            starts, lengths = offsets[:, column], offsets[:, column + 1]
+            if np.any(starts < 0) or np.any(lengths < 0) or np.any(lengths > file_size // width):
+                raise ValueError("Invalid external array offset or length.")
+            if np.any(starts > file_size - lengths * width):
+                raise ValueError("External array extends beyond the ibd file.")
+        if np.any(offsets[:, 1] != offsets[:, 3]):
+            raise ValueError("m/z and intensity array lengths differ.")
+        offsets.setflags(write=False)
+        self.byte_offsets = offsets
+        self._shared_mz = bool(len(offsets) and np.all(offsets[:, :2] == offsets[0, :2]))
+        if backend != "python":
+            try:
+                module = importlib.import_module("imzy._imzml_rust")
+            except (ImportError, OSError) as error:
+                if backend == "rust":
+                    raise ImportError(
+                        "The Rust backend is unavailable. Install a native imzy wheel or build with IMZY_BUILD_RUST=1."
+                    ) from error
+            else:
+                self._native = module.IbdReader(self.ibd_path, offsets, self.mz_precision, self.int_precision)
+
+    @property
+    def backend(self) -> ty.Literal["rust", "python"]:
+        """Return the backend selected for this reader."""
+        return "rust" if self._native is not None else "python"
+
+    def _check_open(self) -> None:
+        if self._closed:
+            raise ValueError("Reader is closed.")
+
+    def close(self) -> None:
+        """Release this reader; existing spectrum arrays and iterators remain valid."""
+        if self._native is not None:
+            self._native.close()
+        self._iterator = None
+        self._mz_grid = None
+        self._closed = True
+
+    def __enter__(self) -> IMZMLReader:
+        self._check_open()
+        return self
+
+    def __exit__(self, *args: ty.Any) -> None:
+        self.close()
+
+    def __next__(self) -> tuple[np.ndarray, np.ndarray]:
+        self._check_open()
+        if self._iterator is None:
+            self._iterator = self._read_spectra()
+        try:
+            return next(self._iterator)
+        except StopIteration:
+            self._iterator = None
+            raise
+
+    def _get_reader_kwargs(self) -> dict[str, ty.Any]:
+        """Return settings needed to reopen this dataset for batch exports."""
+        return {
+            "ibd_path": str(self.ibd_path),
+            "auto_profile": self.auto_profile,
+            "mz_ppm": self.mz_ppm,
+            "resolution": self.resolution,
+            "mz_min": self._mz_min,
+            "mz_max": self._mz_max,
+            "parse_lib": self._parse_lib,
+            "backend": self._requested_backend,
+        }
 
     def _init(self, ibd_path: PathLike | None = None, parse_lib: str | None = None) -> None:
         """Initialize metadata."""
@@ -349,12 +449,20 @@ class IMZMLReader(BaseReader):
 
     def _estimate_centroid_mass_range(self) -> tuple[float, float]:
         """Scan all centroid spectra and return exact global m/z bounds."""
+        self._check_open()
         mz_min, mz_max = np.inf, -np.inf
+        if self._native is not None:
+            for start in range(0, self.n_pixels, _BLOCK_SIZE):
+                low, high = self._native.mass_range(start, min(start + _BLOCK_SIZE, self.n_pixels))
+                mz_min, mz_max = min(mz_min, low), max(mz_max, high)
+            if not np.isfinite(mz_min) or not np.isfinite(mz_max):
+                raise ValueError("Cannot determine m/z range from empty centroid spectra.")
+            return float(mz_min), float(mz_max)
         with open(self.ibd_path, "rb") as f_ptr:
             for index in self.pixels:
                 mz_o, mz_l, _, _ = self.byte_offsets[index]
                 f_ptr.seek(mz_o)
-                x = np.frombuffer(f_ptr.read(mz_l * self._mz_size), dtype=self.mz_precision)
+                x = np.frombuffer(f_ptr.read(mz_l * self._mz_size), dtype=self._mz_dtype)
                 if x.size == 0:
                     continue
                 mz_min = min(mz_min, float(np.min(x)))
@@ -364,29 +472,167 @@ class IMZMLReader(BaseReader):
         return float(mz_min), float(mz_max)
 
     def _read_spectrum(self, index: int) -> tuple[np.ndarray, np.ndarray]:
+        self._check_open()
+        index = self._normalize_index(index)
+        if self._native is not None:
+            return self._native.spectrum(index)
         with open(self.ibd_path, "rb") as f_ptr:
-            mz_o, mz_l, int_o, int_l = self.byte_offsets[index]
-            f_ptr.seek(mz_o)
-            mz_bytes = f_ptr.read(mz_l * self._mz_size)
-            f_ptr.seek(int_o)
-            int_bytes = f_ptr.read(int_l * self._int_size)
-        return np.frombuffer(mz_bytes, dtype=self.mz_precision), np.frombuffer(int_bytes, dtype=self.int_precision)
+            return self._python_spectrum(f_ptr, index)
+
+    def get_intensities(self, index: int) -> np.ndarray:
+        """Return pixel intensities without loading its m/z array."""
+        self._check_open()
+        index = self._normalize_index(index)
+        if self._native is not None:
+            return self._native.intensities(index)
+        offset, length = self.byte_offsets[index, 2:]
+        with open(self.ibd_path, "rb") as f_ptr:
+            f_ptr.seek(offset)
+            return self._python_array(f_ptr, length, self._int_dtype)
+
+    def _normalize_index(self, index: int) -> int:
+        index = operator.index(index)
+        n_pixels = self.n_pixels
+        if index < 0:
+            index += n_pixels
+        if not 0 <= index < n_pixels:
+            raise IndexError("Pixel index out of range.")
+        return index
+
+    @staticmethod
+    def _selection(indices: ty.Iterable[int]) -> np.ndarray:
+        values = np.asarray(indices if isinstance(indices, (np.ndarray, list, tuple, range)) else list(indices))
+        if values.ndim != 1:
+            raise ValueError("Expected one-dimensional pixel indices.")
+        if values.size and values.dtype.kind not in "iu":
+            raise TypeError("Pixel indices must be integers.")
+        if values.dtype.kind == "u" and np.any(values > np.iinfo(np.int64).max):
+            raise IndexError("Pixel index out of range.")
+        return np.ascontiguousarray(values, dtype=np.int64)
+
+    @staticmethod
+    def _python_array(f_ptr: ty.BinaryIO, length: int, dtype: np.dtype) -> np.ndarray:
+        expected = int(length) * dtype.itemsize
+        data = f_ptr.read(expected)
+        if len(data) != expected:
+            raise ValueError("External array extends beyond the ibd file.")
+        return np.frombuffer(data, dtype=dtype)
+
+    def _python_spectrum(self, f_ptr: ty.BinaryIO, index: int) -> tuple[np.ndarray, np.ndarray]:
+        mz_offset, mz_length, int_offset, int_length = self.byte_offsets[index]
+        f_ptr.seek(mz_offset)
+        mzs = self._python_array(f_ptr, mz_length, self._mz_dtype)
+        f_ptr.seek(int_offset)
+        return mzs, self._python_array(f_ptr, int_length, self._int_dtype)
 
     def _read_spectra(self, indices: ty.Iterable[int] | None = None) -> ty.Iterator[tuple[np.ndarray, np.ndarray]]:
         """Read spectra without constantly opening and closing the file handle."""
-        if indices is None:
-            indices = self.pixels
+        self._check_open()
+        selection = None if indices is None else self._selection(indices)
+        if self._native is not None:
+            return self._native.spectra(selection)
+        return self._python_spectra(range(self.n_pixels) if selection is None else selection)
+
+    def _python_spectra(self, indices: ty.Iterable[int]) -> ty.Iterator[tuple[np.ndarray, np.ndarray]]:
         with open(self.ibd_path, "rb") as f_ptr:
             for index in indices:
-                mz_o, mz_l, int_o, int_l = self.byte_offsets[index]
-                f_ptr.seek(mz_o)
-                mz_bytes = f_ptr.read(mz_l * self._mz_size)
-                f_ptr.seek(int_o)
-                int_bytes = f_ptr.read(int_l * self._int_size)
-                yield (
-                    np.frombuffer(mz_bytes, dtype=self.mz_precision),
-                    np.frombuffer(int_bytes, dtype=self.int_precision),
-                )
+                yield self._python_spectrum(f_ptr, self._normalize_index(index))
+
+    def spectra_iter(
+        self, indices: ty.Iterable[int] | None = None, silent: bool = False
+    ) -> ty.Iterator[tuple[np.ndarray, np.ndarray]]:
+        """Iterate spectra in selection order, without allocating a default pixel index."""
+        selection = None if indices is None else self._selection(indices)
+        spectra = self._read_spectra(selection)
+        if silent:
+            return spectra
+        total = self.n_pixels if selection is None else len(selection)
+        return iter(tqdm(spectra, total=total, miniters=500, desc="Iterating spectra..."))
+
+    def get_tic(self, silent: bool = False) -> np.ndarray:
+        """Return cached total ion currents using intensity-only native reduction."""
+        self._check_open()
+        if self._native is None:
+            return super().get_tic(silent=silent)
+        if self._tic is None:
+            result = np.empty(self.n_pixels, dtype=np.float64)
+            for start in tqdm(range(0, self.n_pixels, _BLOCK_SIZE), disable=silent, desc="Extracting TIC..."):
+                stop = min(start + _BLOCK_SIZE, self.n_pixels)
+                result[start:stop] = self._native.tic(start, stop)
+            self._tic = result
+        return self._tic
+
+    def get_ion_image(
+        self,
+        mz: float,
+        tol: float | None = None,
+        ppm: float | None = None,
+        fill_value: float = np.nan,
+        silent: bool = False,
+    ) -> np.ndarray:
+        """Return an ion image using the existing inclusive Da or ppm window."""
+        self._check_open()
+        if self._native is None and (self.is_centroid or self._shared_mz):
+            return super().get_ion_image(mz, tol, ppm, fill_value, silent)
+        # Single-image extraction historically accepts either sign of ppm.
+        ppm = abs(ppm) if ppm is not None else None
+        return self.reshape(self._get_ions([mz], tol, ppm, fill_value, silent)[:, 0])
+
+    def _ion_blocks(
+        self, lower: np.ndarray, upper: np.ndarray, silent: bool
+    ) -> ty.Iterator[tuple[int, int, np.ndarray]]:
+        self._check_open()
+        if lower.size == 0:
+            return
+        shared_indices = None
+        if self._native is None and self._shared_mz:
+            shared_indices = find_between_batch(self.get_spectrum(0)[0], lower, upper)
+        for start in tqdm(range(0, self.n_pixels, _BLOCK_SIZE), disable=silent, desc="Extracting ions..."):
+            stop = min(start + _BLOCK_SIZE, self.n_pixels)
+            if self._native is not None:
+                block = self._native.ion_table(start, stop, lower, upper)
+            else:
+                block = np.empty((stop - start, len(lower)), dtype=np.float32)
+                for row, (x, y) in enumerate(self._read_spectra(range(start, stop))):
+                    block[row] = (
+                        accumulate_peaks_centroid(lower, upper, x, y)
+                        if shared_indices is None
+                        else accumulate_peaks_profile(shared_indices, y)
+                    )
+            yield start, stop, block
+
+    def _get_ions(
+        self,
+        mzs: ty.Iterable[float],
+        tol: float | None = None,
+        ppm: float | None = None,
+        fill_value: float = np.nan,
+        silent: bool = False,
+    ) -> np.ndarray:
+        self._check_open()
+        values = np.asarray(mzs if isinstance(mzs, (np.ndarray, list, tuple)) else list(mzs), dtype=np.float64)
+        lower, upper = (np.ascontiguousarray(v, dtype=np.float64) for v in get_mzs_for_tol(values, tol, ppm))
+        result = np.full((self.n_pixels, len(values)), fill_value, dtype=np.float32)
+        for start, stop, block in self._ion_blocks(lower, upper, silent):
+            result[start:stop] = block
+        return result
+
+    def _get_ions_yield(
+        self,
+        mzs: ty.Iterable[float],
+        tol: float | None = None,
+        ppm: float | None = None,
+        fill_value: float = np.nan,
+        silent: bool = False,
+    ) -> ty.Iterator[tuple[int | None, int | None, np.ndarray | None]]:
+        self._check_open()
+        values = np.asarray(list(mzs), dtype=np.float64)
+        lower, upper = (np.ascontiguousarray(v, dtype=np.float64) for v in get_mzs_for_tol(values, tol, ppm))
+        result = np.full((self.n_pixels, len(values)), fill_value, dtype=np.float32)
+        for start, stop, block in self._ion_blocks(lower, upper, silent):
+            result[start:stop] = block
+            yield stop - 1, self.n_pixels, None
+        yield None, None, result
 
 
 def infer_path(path: Path, ibd_path: PathLike | None = None) -> tuple[Path, Path, Path | None]:
@@ -394,10 +640,10 @@ def infer_path(path: Path, ibd_path: PathLike | None = None) -> tuple[Path, Path
     import re
 
     if ibd_path is None:
-        ibd_path = path.name
+        ibd_path = path.with_suffix(".ibd")
 
-        for _path in path.parent.glob("*.ibd"):
-            if re.match(r".+\.ibd", str(_path), re.IGNORECASE) and _path.stem == path.stem:
+        for _path in path.parent.iterdir():
+            if _path.suffix.lower() == ".ibd" and _path.stem == path.stem:
                 ibd_path = _path
                 break
     icache_path = None
@@ -405,7 +651,7 @@ def infer_path(path: Path, ibd_path: PathLike | None = None) -> tuple[Path, Path
         if re.match(r".+\.icache", str(_path), re.IGNORECASE) and _path.stem == path.stem:
             icache_path = _path
             break
-    return path, ibd_path, icache_path
+    return path, Path(ibd_path), icache_path
 
 
 # noinspection HttpUrlsUsage

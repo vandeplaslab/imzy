@@ -1,12 +1,56 @@
 [build-system]
-requires = ["hatchling", "hatch-vcs"]
+requires = ["hatchling", "hatch-vcs", "maturin>=1.15,<2"]
 build-backend = "hatchling.build"
 
 [tool.hatch.version]
 source = "vcs"
 
 [tool.hatch.build.targets.sdist]
-include = ["src", "tests", "CHANGELOG.md"]
+include = [
+    "src", "tests", "rust", "hatch_build.py", "README.md", "LICENSE",
+    "scripts/benchmark_imzml.py", "scripts/audit_native_wheel.py", "benchmarks",
+    "asv.conf.json", "scripts/benchmark_history.py",
+]
+exclude = ["rust/target", "src/imzy/_imzml_rust*.so", "src/imzy/_imzml_rust*.pyd"]
+
+[tool.hatch.build.targets.wheel.hooks.custom]
+path = "hatch_build.py"
+
+[tool.maturin]
+manifest-path = "rust/Cargo.toml"
+python-source = "src"
+module-name = "imzy._imzml_rust"
+
+[tool.cibuildwheel]
+build = "cp310-*"
+build-frontend = "uv"
+skip = "*-musllinux_* *-win32 *-manylinux_i686"
+environment = { IMZY_BUILD_RUST = "1" }
+test-extras = ["test"]
+# Dependency installation runs from the project root on every platform.
+test-environment = { UV_CONFIG_FILE = "tests/uv-wheel.toml" }
+test-command = "python -m pytest {project}/tests/test_imzml_native.py {project}/tests/test_imzml.py {project}/tests/test_imzml_writer.py"
+audit-requires = ["abi3audit"]
+audit-command = 'python "{project}/scripts/audit_native_wheel.py" "{wheel}"'
+
+[tool.cibuildwheel.linux]
+manylinux-x86_64-image = "manylinux2014"
+before-all = "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal"
+environment = { PATH = "$HOME/.cargo/bin:$PATH", IMZY_BUILD_RUST = "1", IMZY_REQUIRE_RUST = "1" }
+
+[tool.cibuildwheel.macos]
+environment = { IMZY_BUILD_RUST = "1", IMZY_REQUIRE_RUST = "1" }
+
+[tool.cibuildwheel.windows]
+environment = { IMZY_BUILD_RUST = "1", IMZY_REQUIRE_RUST = "1" }
+
+[[tool.cibuildwheel.overrides]]
+select = "*-macosx_x86_64"
+inherit.environment = "append"
+# Rust's standard library requires macOS 10.12 on Intel, above CPython 3.10's default.
+environment.MACOSX_DEPLOYMENT_TARGET = "10.12"
+# Maturin honors cibuildwheel's platform override when naming the wheel.
+environment._PYTHON_HOST_PLATFORM = "macosx-10.12-x86_64"
 
 # https://peps.python.org/pep-0621/
 [project]
@@ -31,6 +75,7 @@ classifiers = [
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
   "Typing :: Typed",
   "Topic :: Scientific/Engineering :: Visualization",
   "Topic :: Scientific/Engineering :: Bio-Informatics",
@@ -61,7 +106,10 @@ imzy = "imzy.cli:main"
 # https://peps.python.org/pep-0621/#dependencies-optional-dependencies
 [project.optional-dependencies]
 plot = ["matplotlib"]
-zarr = ["zarr", "dask", "rechunker"]
+zarr = [
+    "zarr>3,<4; python_version >= '3.11'",
+    "dask; python_version >= '3.11'",
+]
 hdf5 = ["yoki5", "h5py", "hdf5plugin"]
 all = ["imzy[hdf5]", "imzy[zarr]", "imzy[plot]"]
 test = [
@@ -71,6 +119,14 @@ test = [
 ]
 
 [dependency-groups]
+benchmark = [
+    "asv==0.6.6",
+    "build==1.6.1",
+    "hatchling==1.32.4",
+    "hatch-vcs==0.5.0",
+    "maturin==1.15.0",
+    "pytest>=8.3.5",
+]
 test = [
     "imzy[all]",
     "pytest>=8.3.5",
@@ -213,6 +269,15 @@ ignore = [
   "**/*_version.py",
   "Makefile",
   "MANIFEST.in",
+  "uv.lock",
+  "scripts/build_package.sh",
+  "scripts/importtime.sh",
+  "scripts/dump_obo_files.py",
+  "CONTRIBUTING.md",
+  "CODE_OF_CONDUCT.md",
+  "SECURITY.md",
+  ".idea/**/*",
+  "examples/**/*",
 ]
 ignore-bad-ideas = [
     "src/imzy/**/*.so",

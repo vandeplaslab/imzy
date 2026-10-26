@@ -66,6 +66,8 @@ def test_init(path):
 @pytest.mark.skipif(IS_MAC, reason="Bruker reader is not supported on macOS.")
 @pytest.mark.parametrize("path", get_tsf_data())
 def test_to_zarr(path, tmp_path):
+    pytest.importorskip("zarr")
+    pytest.importorskip("dask.array")
     reader = TSFReader(path)
 
     mzs = [500, 550, 600, 601, 603]
