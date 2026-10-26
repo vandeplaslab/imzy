@@ -35,6 +35,7 @@ jobs:
       UV_NO_SYNC: "1"
       UV_MANAGED_PYTHON: "1"
       IMZY_REQUIRE_RUST: "1"
+      UV_CONFIG_FILE: tests/uv-wheel.toml
     strategy:
       fail-fast: false
       matrix:
@@ -44,6 +45,10 @@ jobs:
           - {os: macos-15-intel, name: macos-x86_64}
           - {os: macos-latest, name: macos-arm64}
         python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+        # Numba/llvmlite do not provide Intel macOS wheels for Python 3.14.
+        exclude:
+          - platform: {os: macos-15-intel, name: macos-x86_64}
+            python-version: "3.14"
 
     steps:
       - uses: actions/checkout@v6
