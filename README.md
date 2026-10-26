@@ -36,6 +36,38 @@ pip install "imzy[all]"
 
 imzy requires Python 3.10 or newer.
 
+### Rust imzML backend
+
+Release wheels include a Rust backend for memory-mapped spectrum access, pixel iteration, TIC calculation, and ion
+images. Installing a wheel needs no Rust compiler. The XML parser and metadata cache remain in Python.
+
+```python
+from imzy import IMZMLReader
+
+with IMZMLReader("sample.imzML", backend="auto") as reader:
+    print(reader.backend)  # "rust" when available, otherwise "python"
+    mzs, intensities = reader.get_spectrum(0)
+    images = reader.get_ion_images([734.569, 760.585], ppm=10, silent=True)
+```
+
+Use `backend="rust"` to require the extension or `backend="python"` to select the fallback. Arrays are read-only;
+call `.copy()` for writable data. Aligned arrays use views into the file and unaligned arrays are copied safely.
+Keep the dataset unchanged while a reader, returned array, or iterator exists. `close()` releases the reader's mapping;
+existing arrays and iterators keep their mappings alive, including any file locks held on Windows.
+
+Source installations build the extension automatically when Cargo is available. To require it, install the stable
+[Rust toolchain](https://rustup.rs/) and run:
+
+```bash
+IMZY_BUILD_RUST=1 pip install .
+```
+
+`IMZY_BUILD_RUST=0 pip install .` explicitly selects a compiler-free installation. PowerShell users can set
+`$env:IMZY_BUILD_RUST = "1"` before running `pip install .`. Compilation failures are reported rather than silently
+producing a fallback wheel. Supported input arrays are uncompressed little-endian float32, float64, int32, and int64.
+Rayon parallelizes bulk extraction; set `RAYON_NUM_THREADS` before starting Python to limit its worker count.
+Ion extraction expects m/z arrays in ascending order.
+
 ## Supported Formats
 
 | Format | Support |
@@ -184,22 +216,34 @@ When `get_reader()` is called, imzy registers built-in readers and then loads in
 
 ## Development
 
-Install the project in development mode and set up the local checks:
+Install an editable build, including the optional native extension:
 
 ```bash
-make develop
-make pre-install
+uv pip install -e ".[test]"
 ```
 
 Run the main checks before opening a change:
 
 ```bash
-make codestyle
-pytest
+uv run pytest
+cargo test --manifest-path rust/Cargo.toml
+cargo fmt --manifest-path rust/Cargo.toml -- --check
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines and [SECURITY.md](SECURITY.md) for reporting security
 issues.
+
+After editing Rust sources, rerun the editable installation to rebuild the extension. To benchmark both backends:
+
+```bash
+uv run python scripts/benchmark_imzml.py --output benchmark.json
+```
+
+The benchmark generates varied continuous and processed spectra, warms Numba and the OS page cache, consumes complete
+spectra, resets TIC caching, validates results, and alternates backend order. It reports median latency, pixel throughput,
+and speedups. Use `--pixels`, `--points`, `--targets`, and `--repeats` to change the workload.
+
+See the [benchmark report](benchmarks/imzml.md) for local measurements and their methodology.
 
 ## License
 

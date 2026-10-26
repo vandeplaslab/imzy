@@ -18,6 +18,8 @@ from imzy._readers.imzml._imzml import (
 
 from .utilities import get_imzml_data
 
+pytestmark = pytest.mark.usefixtures("imzml_backend")
+
 
 def _copy_imzml_dataset(path: Path, tmp_path: Path, *, copy_cache: bool = True) -> Path:
     """Copy an imzML dataset to a temporary directory for cache-writing tests."""

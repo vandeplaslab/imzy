@@ -21,6 +21,8 @@ from imzy import (
 from imzy._readers._base import BaseReader
 from imzy._readers.imzml._imzml import SPECTRUM_MODE_CENTROID, SPECTRUM_MODE_PROFILE, init_metadata
 
+pytestmark = pytest.mark.usefixtures("imzml_backend")
+
 _MZML_NS = {"mzml": "http://psi.hupo.org/ms/mzml"}
 
 

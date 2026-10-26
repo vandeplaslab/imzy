@@ -330,7 +330,7 @@ class BaseReader:
         ppm: float | None = None,
         fill_value: float = np.nan,
         silent: bool = False,
-    ) -> ty.Generator[np.ndarray, None, None]:
+    ) -> ty.Iterator[tuple[int | None, int | None, np.ndarray | None]]:
         mzs = np.asarray(mzs)
         mzs_min, mzs_max = get_mzs_for_tol(mzs, tol, ppm)
         res = np.full((self.n_pixels, len(mzs)), dtype=np.float32, fill_value=fill_value)
@@ -540,7 +540,7 @@ class BaseReader:
 
     def spectra_iter(
         self, indices: ty.Iterable[int] | None = None, silent: bool = False
-    ) -> ty.Generator[tuple[np.ndarray, np.ndarray], None, None]:
+    ) -> ty.Iterator[tuple[np.ndarray, np.ndarray]]:
         """Yield spectra."""
         indices = self.pixels if indices is None else np.asarray(indices)
         yield from tqdm(

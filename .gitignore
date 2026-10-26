@@ -126,6 +126,8 @@ __pycache__/
 
 # C extensions
 #*.so
+src/imzy/_imzml_rust*.so
+src/imzy/_imzml_rust*.pyd
 
 # Distribution / packaging
 .Python
