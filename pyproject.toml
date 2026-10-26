@@ -32,6 +32,8 @@ audit-command = 'python "{project}/scripts/audit_native_wheel.py" "{wheel}"'
 
 [tool.cibuildwheel.linux]
 manylinux-x86_64-image = "manylinux2014"
+# Use dependency wheels compatible with manylinux2014 during wheel tests.
+test-environment = { UV_CONFIG_FILE = "/project/tests/uv-wheel.toml" }
 before-all = "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal"
 environment = { PATH = "$HOME/.cargo/bin:$PATH", IMZY_BUILD_RUST = "1", IMZY_REQUIRE_RUST = "1" }
 
