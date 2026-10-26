@@ -22,6 +22,7 @@ module-name = "imzy._imzml_rust"
 
 [tool.cibuildwheel]
 build = "cp310-*"
+build-frontend = "uv"
 skip = "*-musllinux_* *-win32 *-manylinux_i686"
 environment = { IMZY_BUILD_RUST = "1" }
 test-extras = ["test"]
