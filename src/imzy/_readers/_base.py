@@ -382,7 +382,7 @@ class BaseReader:
         chunk_size: tuple[int, int] | None = None,
         silent: bool = False,
     ) -> Path:
-        """Export many ion images for specified m/z values (+ tolerance) to Zarr array."""
+        """Export ion images and mass metadata to a Zarr 3 group (Python 3.11+)."""
         from imzy._centroids._extract import (
             check_zarr,
             create_centroids_zarr,
@@ -428,7 +428,7 @@ class BaseReader:
             reader_kwargs=reader_kwargs,
         )
 
-        ds = dsa.from_zarr(zarr_array_path)
+        ds = dsa.from_zarr(ds)
         ys = ds.sum(axis=0).compute()
         create_centroids_zarr(
             self.path,
@@ -441,7 +441,9 @@ class BaseReader:
         )
 
         target_path = str(zarr_path / "array")
-        rechunk_zarr_array(self.path, zarr_array_path, target_path, chunk_size=chunk_size, reader_kwargs=reader_kwargs)
+        rechunk_zarr_array(
+            self.path, zarr_array_path, target_path, chunk_size=chunk_size, silent=silent, reader_kwargs=reader_kwargs
+        )
         return zarr_path
 
     def to_hdf5(

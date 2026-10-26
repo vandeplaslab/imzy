@@ -272,7 +272,7 @@ def test_choose_iterparse_defaults_to_elementtree_on_windows(monkeypatch: pytest
 
 
 @pytest.mark.skipif(
-    not (is_installed("zarr") and is_installed("rechunker") and is_installed("dask")), reason="zarr not installed"
+    not (is_installed("zarr") and is_installed("dask")), reason="Zarr support requires Python 3.11+ and imzy[zarr]"
 )
 @pytest.mark.parametrize("path", get_imzml_data())
 def test_to_zarr(path, tmp_path):

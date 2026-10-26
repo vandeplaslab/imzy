@@ -35,6 +35,8 @@ pip install "imzy[all]"
 ```
 
 imzy requires Python 3.10 or newer.
+The Zarr backend requires Python 3.11 or newer and Zarr 3 (`zarr>3,<4`). On Python 3.10, the `all` and `test`
+extras include the core, HDF5, and plotting dependencies; Zarr support is omitted.
 
 ### Rust imzML backend
 
