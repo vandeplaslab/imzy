@@ -40,6 +40,14 @@ environment = { IMZY_BUILD_RUST = "1", IMZY_REQUIRE_RUST = "1" }
 [tool.cibuildwheel.windows]
 environment = { IMZY_BUILD_RUST = "1", IMZY_REQUIRE_RUST = "1" }
 
+[[tool.cibuildwheel.overrides]]
+select = "*-macosx_x86_64"
+inherit.environment = "append"
+# Rust's standard library requires macOS 10.12 on Intel, above CPython 3.10's default.
+environment.MACOSX_DEPLOYMENT_TARGET = "10.12"
+# Maturin honors cibuildwheel's platform override when naming the wheel.
+environment._PYTHON_HOST_PLATFORM = "macosx-10.12-x86_64"
+
 # https://peps.python.org/pep-0621/
 [project]
 name = "imzy"
