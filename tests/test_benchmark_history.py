@@ -79,6 +79,28 @@ def test_network_errors_cannot_initialize(tmp_path: Path, monkeypatch: pytest.Mo
         history.restore_history("https://example.com/", tmp_path / "history", initialize=True)
 
 
+@pytest.mark.parametrize("code", [404, 503])
+@pytest.mark.parametrize("initialize", [False, True])
+def test_http_error_response_is_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, code: int, initialize: bool
+) -> None:
+    body = io.BytesIO(b"HTTP error response")
+    with HTTPError("https://example.com/", code, "unavailable", {}, body) as error:
+
+        def unavailable(*args: object, **kwargs: object) -> None:
+            raise error
+
+        monkeypatch.setattr(history, "urlopen", unavailable)
+        monkeypatch.setattr(history, "has_publication", lambda repository: False)
+        directory = tmp_path / "history"
+        if code == 404 and initialize:
+            history.restore_history("https://example.com/", directory, initialize=True)
+        else:
+            with pytest.raises(RuntimeError, match="stopped"):
+                history.restore_history("https://example.com/", directory, initialize=initialize)
+        assert body.closed
+
+
 @pytest.mark.parametrize("contents", [b"invalid gzip", b"\x1f\x8b\x08\x00"])
 def test_corrupt_archives_do_not_replace_history(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, contents: bytes

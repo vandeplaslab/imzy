@@ -108,6 +108,7 @@ def restore_history(site_url: str, directory: Path, *, initialize: bool = False,
                 with archive_path.open("wb") as output:
                     shutil.copyfileobj(response, output)
         except HTTPError as error:
+            error.close()
             if error.code != 404 or not initialize:
                 raise RuntimeError("Cannot restore benchmark history; publication stopped. See benchmarks/README.md.")
             if has_publication(repository):
