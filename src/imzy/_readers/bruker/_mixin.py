@@ -92,10 +92,9 @@ class BrukerBaseReader(BaseReader):
 
         This method will throw an error if the pixel size is not equal in both dimensions.
         """
-        if self._pixel_size is None:
-            with self.sql_reader() as conn:
-                cursor = conn.execute("SELECT SpotSize FROM MaldiFrameLaserInfo")
-                self._pixel_size = float(cursor.fetchone()[0])
+        from imzy._readers.bruker.utilities import get_pixel_size
+
+        self._pixel_size = get_pixel_size(self.path, self.sql_filename)
         return self._pixel_size
 
     @property
@@ -234,16 +233,9 @@ class BrukerBaseReader(BaseReader):
     # noinspection PyAttributeOutsideInit
     def set_region_information(self, roi: int | None = None) -> None:
         """Collect file information."""
-        data = self._read_cache("frame_index_cache", ["frame_index_position"])
-        # load data from cache
-        if data["frame_index_position"] is not None:
-            frame_index_position = data["frame_index_position"]
-        else:
-            with self.sql_reader() as conn:
-                cursor = conn.cursor()
-                cursor.execute("SELECT Frame, XIndexPos, YIndexPos, RegionNumber FROM MaldiFrameInfo")
-                frame_index_position = np.array(cursor.fetchall())
-            self._write_cache("frame_index_cache", data={"frame_index_position": frame_index_position})
+        from imzy._readers.bruker.utilities import get_coordinates_and_roi
+
+        frame_index_position = get_coordinates_and_roi(self.path, self.sql_filename)
 
         # get ROI
         self.region_number_all = frame_index_position[:, 3]
@@ -277,24 +269,9 @@ class BrukerBaseReader(BaseReader):
     def get_tic(self, silent: bool = False) -> np.ndarray:
         """Get TIC data."""
         if self._tic is None:
-            data = self._read_cache("tic", ["tic", "region_frames"])
-            if data["tic"] is not None and not isinstance(data["region_frames"], str):
-                tic = np.ravel(data["tic"])
-            else:
-                with self.sql_reader() as conn:
-                    try:
-                        cursor = conn.execute("SELECT SummedIntensities, RegionNumber FROM Spectra")
-                        tic_data = np.array(cursor.fetchall())
-                        region_frames = tic_data[:, 1]
-                        tic = tic_data[:, 0]
-                    except sqlite3.OperationalError:
-                        # this is required to handle TSF files (and maybe TDF?)
-                        cursor = conn.execute("SELECT RegionNumber FROM MaldiFrameInfo")
-                        region_frames = np.array(cursor.fetchall())
-                        cursor = conn.execute("SELECT SummedIntensities FROM Frames")
-                        tic = np.array(cursor.fetchall())
-                    tic = np.ravel(tic)
-                self._write_cache("tic", data={"tic": tic, "region_frames": region_frames})
+            from imzy._readers.bruker.utilities import get_tic
+
+            tic = get_tic(self.path, self.sql_filename)
             if self.roi not in [None, "None"]:
                 tic = tic[self.region_frames]
             self._tic = tic
