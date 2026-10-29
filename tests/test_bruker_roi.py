@@ -9,6 +9,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from koyo.system import IS_MAC
 
 
 def _load_bruker_base_reader():
@@ -74,6 +75,7 @@ def bruker_path(tmp_path: Path) -> Path:
     return tmp_path
 
 
+@pytest.mark.skipif(IS_MAC, reason="Bruker reader is not supported on macOS.")
 def test_bruker_roi_crops_spatial_metadata_and_pixel_indices(bruker_path: Path):
     reader = DummyBrukerReader(bruker_path, roi=2)
 
