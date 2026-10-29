@@ -77,7 +77,7 @@ def _auto_guess_ppm(resolution: int, mz_ppm: float | str) -> float:
     return mz_ppm  # type: ignore[return-value]
 
 
-def write_cache(path: PathLike, filename: str, data: dict) -> None:
+def write_cache(path: PathLike, filename: str, data: dict, cache_dir_name: str | None = None) -> None:
     """Sometimes, reading data from raw data can be very slow, so we can cache it instead.
 
     Cache data is usually written inside the raw directory (e.g. inside Bruker .d or Waters .raw) or next to it
@@ -91,8 +91,13 @@ def write_cache(path: PathLike, filename: str, data: dict) -> None:
         name of the cache file without the .npz suffix
     data : dict
         dictionary containing cache data
+    cache_dir_name : str, optional
+        Name of the cache directory, by default ".icache"
     """
-    cache_dir_path = Path(path) / ".icache"
+    if cache_dir_name is None:
+        cache_dir_name = ".icache"
+
+    cache_dir_path = Path(path) / cache_dir_name
     cache_dir_path.mkdir(exist_ok=True)
     tmp_filename = cache_dir_path / (filename + ".tmp.npz")
     filename = cache_dir_path / (filename + ".npz")
@@ -110,7 +115,9 @@ def write_cache(path: PathLike, filename: str, data: dict) -> None:
             tmp_filename.unlink()
 
 
-def read_cache(path: PathLike, filename: str, keys: list[str]) -> dict[str, np.ndarray | None]:
+def read_cache(
+    path: PathLike, filename: str, keys: list[str], cache_dir_name: str | None = None
+) -> dict[str, np.ndarray | None]:
     """Load cache metadata.
 
     Parameters
@@ -121,8 +128,13 @@ def read_cache(path: PathLike, filename: str, keys: list[str]) -> dict[str, np.n
         Name of the cache file without the .npz suffix
     keys : list
         Keys to be read when cache file is loaded
+    cache_dir_name : str, optional
+        Name of the cache directory, by default ".icache"
     """
-    cache_file_path = Path(path) / ".icache" / (filename + ".npz")
+    if cache_dir_name is None:
+        cache_dir_name = ".icache"
+
+    cache_file_path = Path(path) / cache_dir_name / (filename + ".npz")
 
     data = {}.fromkeys(keys)
     if cache_file_path.exists():
