@@ -11,9 +11,16 @@ import pytest
 
 import imzy
 from imzy import SCiLSReader, get_reader
-from imzy._readers.scils import decode_spot_indices, is_scils, parse_length_prefixed, read_slx_metadata
+from imzy._readers.scils import decode_mz, decode_spot_indices, is_scils, parse_length_prefixed, read_slx_metadata
+from imzy._readers.scils._scils import _SPECTRA_CHUNK
 
-from .utilities import SyntheticSCiLS, encode_length_prefixed, encode_spot_indices, write_synthetic_scils
+from .utilities import (
+    SyntheticSCiLS,
+    encode_length_prefixed,
+    encode_mz,
+    encode_spot_indices,
+    write_synthetic_scils,
+)
 
 
 @pytest.fixture(scope="module")
@@ -281,11 +288,174 @@ def test_not_a_scils_hdf5(tmp_path: Path) -> None:
         SCiLSReader(path)
 
 
-def test_spectra_not_supported(reader: SCiLSReader) -> None:
-    with pytest.raises(NotImplementedError):
-        reader.get_spectrum(0)
-    with pytest.raises(NotImplementedError):
-        reader.get_summed_spectrum([0, 1])
+# --- spectra ----------------------------------------------------------------------------------------------------------
+@pytest.mark.parametrize("width", [None, 3, 4, 8])
+def test_decode_mz_widths(width: int | None) -> None:
+    rng = np.random.default_rng(0)
+    mz = 323.1618 + np.cumsum(rng.uniform(0.001, 3.0, size=40))
+    decoded = decode_mz(encode_mz(mz, width=width), len(mz))
+    np.testing.assert_allclose(decoded, mz, atol=1e-6)  # 2 micro-Da resolution
+    assert decoded[0] == mz[0]
+
+
+@pytest.mark.parametrize("scale", [500_000.0, 1_000.0])
+def test_decode_mz_scale(scale: float) -> None:
+    mz = np.array([400.0, 400.5, 700.123])
+    np.testing.assert_allclose(decode_mz(encode_mz(mz, scale=scale), 3), mz, atol=1 / scale)
+
+
+def test_decode_mz_edge_cases() -> None:
+    assert decode_mz(b"", 0).size == 0
+    np.testing.assert_array_equal(decode_mz(encode_mz(np.array([555.5])), 1), [555.5])
+    block = encode_mz(np.array([400.0, 401.0]))
+    with pytest.raises(ValueError, match="trailer"):
+        decode_mz(block[:-1], 2)
+    with pytest.raises(ValueError, match="Unexpected SCiLS m/z block"):
+        decode_mz(block, 3)  # number of peaks does not match
+
+
+def test_decode_spot_indices_three_byte_width() -> None:
+    spots = np.array([5, 100_000, 300_000, 900_000])  # gaps need 3 bytes
+    np.testing.assert_array_equal(decode_spot_indices(encode_spot_indices(spots), len(spots)), spots)
+
+
+def test_get_spectrum(reader: SCiLSReader, synthetic: SyntheticSCiLS) -> None:
+    for index in (0, 1, 200, reader.n_pixels - 1):
+        mz, y = reader.get_spectrum(index)
+        expected_y = synthetic.dense[index][synthetic.dense[index] > 0]
+        assert mz.dtype == np.float64 and y.dtype == np.float32
+        np.testing.assert_array_equal(mz, synthetic.spectra_mz[index])
+        np.testing.assert_array_equal(y, expected_y)
+        assert np.all(np.diff(mz) > 0)
+        np.testing.assert_array_equal(reader[index][0], mz)
+        assert reader.get_intensities(index).shape == y.shape
+    np.testing.assert_allclose(reader.get_spectrum(0)[1].sum(), reader.get_tic()[0], rtol=1e-5)
+
+
+def test_get_spectrum_out_of_bounds(reader: SCiLSReader) -> None:
+    for index in (-1, reader.n_pixels):
+        with pytest.raises(IndexError):
+            reader.get_spectrum(index)
+
+
+def test_read_spectra_all_chunks(reader: SCiLSReader, synthetic: SyntheticSCiLS) -> None:
+    """Iterating reads several chunks (more spots than the chunk size) and must keep the order."""
+    assert reader.n_pixels > _SPECTRA_CHUNK
+    spectra = list(reader._read_spectra())
+    assert len(spectra) == reader.n_pixels
+    for index in (0, _SPECTRA_CHUNK - 1, _SPECTRA_CHUNK, reader.n_pixels - 1):
+        np.testing.assert_array_equal(spectra[index][0], synthetic.spectra_mz[index])
+    assert sum(len(mz) for mz, _ in spectra) == int((synthetic.dense > 0).sum())
+
+
+@pytest.mark.parametrize(
+    "indices",
+    [
+        [3, 1, 2],  # contiguous, unordered
+        [0, 400],  # sparse -> one read per spectrum
+        [5, 5, 5],  # repeated
+        [],  # nothing
+    ],
+)
+def test_read_spectra_arbitrary_indices(reader: SCiLSReader, synthetic: SyntheticSCiLS, indices: list[int]) -> None:
+    spectra = list(reader._read_spectra(np.asarray(indices, dtype=int)))
+    assert len(spectra) == len(indices)
+    for index, (mz, y) in zip(indices, spectra, strict=True):
+        np.testing.assert_array_equal(mz, synthetic.spectra_mz[index])
+        np.testing.assert_array_equal(y, synthetic.dense[index][synthetic.dense[index] > 0])
+
+
+def test_spectra_iter(reader: SCiLSReader, synthetic: SyntheticSCiLS) -> None:
+    for i, (mz, _) in zip(range(3), reader, strict=False):
+        np.testing.assert_array_equal(mz, synthetic.spectra_mz[i])
+    list(reader.spectra_iter([0, 1], silent=True))
+
+
+def test_empty_spectrum(tmp_path: Path) -> None:
+    data = write_synthetic_scils(tmp_path, empty_spots=(3,), with_tic_normalization=False)
+    r = SCiLSReader(data.sbd_path)
+    mz, y = r.get_spectrum(3)
+    assert mz.size == 0 and y.size == 0
+    np.testing.assert_array_equal(r.get_spectrum(4)[0], data.spectra_mz[4])  # neighbours are unaffected
+    assert r.get_tic()[3] == 0
+    np.testing.assert_allclose(r.get_tic(), data.dense.sum(axis=1), rtol=1e-5)
+    assert [len(mz) for mz, _ in r._read_spectra([2, 3, 4])][1] == 0
+    assert r.flatten(r.get_ion_image_range(300, 600))[3] == 0
+
+
+def test_summed_spectrum(reader: SCiLSReader, synthetic: SyntheticSCiLS) -> None:
+    indices = np.array([0, 7, 300, 301])
+    mz, summed = reader.get_summed_spectrum(indices, silent=True)
+    np.testing.assert_array_equal(mz, synthetic.mz_axis)
+    np.testing.assert_allclose(summed, synthetic.dense[indices].sum(axis=0), rtol=1e-6)
+    # result must be a copy
+    mz[:] = 0
+    assert reader.mz_axis[0] == 300.0
+
+
+def test_summed_spectrum_all_pixels_and_scales(reader: SCiLSReader, synthetic: SyntheticSCiLS) -> None:
+    """Summing more spots than the chunk size, with a per-pixel multiplier (indexed by pixel)."""
+    scales = np.random.default_rng(1).uniform(0.5, 2.0, reader.n_pixels).astype(np.float32)
+    _, summed = reader.get_summed_spectrum(range(reader.n_pixels), scales=scales, silent=True)
+    np.testing.assert_allclose(summed, (synthetic.dense * scales[:, None]).sum(axis=0), rtol=1e-4)
+    # normalization multipliers from the file can be used directly
+    tic_scales = reader.get_normalizations()["TIC"]
+    _, summed = reader.get_summed_spectrum([2, 9], scales=tic_scales, silent=True)
+    np.testing.assert_allclose(summed, (synthetic.dense[[2, 9]] * tic_scales[[2, 9], None]).sum(axis=0), rtol=1e-4)
+
+
+def test_summed_spectrum_errors(reader: SCiLSReader) -> None:
+    with pytest.raises(ValueError, match="at least one index"):
+        reader.get_summed_spectrum([], silent=True)
+    for bad in ([reader.n_pixels], [-1]):
+        with pytest.raises(ValueError, match="greater than the total number of pixels"):
+            reader.get_summed_spectrum(bad, silent=True)
+
+
+def test_nearest_mz_bins(reader: SCiLSReader, synthetic: SyntheticSCiLS) -> None:
+    axis = synthetic.mz_axis
+    spacing = axis[1] - axis[0]
+    mz = np.array([299.0, axis[0], axis[10] + 0.4 * spacing, axis[10] + 0.6 * spacing, axis[-1], 700.0])
+    np.testing.assert_array_equal(reader.nearest_mz_bins(mz), [0, 0, 10, 11, len(axis) - 1, len(axis) - 1])
+    # every synthetic peak falls into its own bin
+    bins = np.flatnonzero(synthetic.dense[5])
+    np.testing.assert_array_equal(reader.nearest_mz_bins(synthetic.spectra_mz[5]), bins)
+
+
+def test_spectra_for_roi(tmp_path: Path) -> None:
+    data = write_synthetic_scils(tmp_path, n_rasters=2)
+    r = SCiLSReader(data.sbd_path, roi=1)
+    offset = int((data.rasters == 0).sum())
+    for index in (0, 5, r.n_pixels - 1):
+        np.testing.assert_array_equal(r.get_spectrum(index)[0], data.spectra_mz[offset + index])
+    mask = data.rasters == 1
+    _, summed = r.get_summed_spectrum(range(r.n_pixels), silent=True)
+    np.testing.assert_allclose(summed, data.dense[mask].sum(axis=0), rtol=1e-6)
+
+
+def test_spectra_missing_from_file(tmp_path: Path) -> None:
+    import h5py
+
+    data = write_synthetic_scils(tmp_path, with_tic_normalization=False)
+    with h5py.File(data.sbd_path, "a") as f:
+        for key in ("mzOffsets", "compressedMz"):
+            del f["SpectraGroup"][key]
+    r = SCiLSReader(data.sbd_path)  # ion images still work
+    assert r.get_ion_image_range(300, 600).sum() > 0
+    with pytest.raises(ValueError, match="does not contain per-spot spectra"):
+        r.get_spectrum(0)
+    with pytest.raises(ValueError, match="TIC cannot be determined"):
+        r.get_tic()
+
+
+def test_get_spectrum_consistent_with_ion_images(reader: SCiLSReader) -> None:
+    """Peaks from the spectra, binned onto the global axis, must give the same ion image as the image-major layout."""
+    window = (reader.mz_axis[200], reader.mz_axis[230])
+    from_spectra = np.zeros(reader.n_pixels)
+    for i, (mz, y) in enumerate(reader._read_spectra()):
+        bins = reader.nearest_mz_bins(mz)
+        from_spectra[i] = y[(bins >= 200) & (bins <= 230)].sum()
+    np.testing.assert_allclose(reader.flatten(reader.get_ion_image_range(*window)), from_spectra, rtol=1e-5)
 
 
 # --- real data (optional) ---------------------------------------------------------------------------------------------
@@ -297,3 +467,16 @@ def test_real_file() -> None:
     np.testing.assert_allclose(full, r.get_tic(), rtol=1e-4)
     image = r.get_ion_image(r.mz_axis[len(r.mz_axis) // 2], ppm=20)
     assert image.shape == r.image_shape and image.min() >= 0
+
+
+@pytest.mark.skipif(not os.environ.get("SCILS_TEST_FILE"), reason="Set SCILS_TEST_FILE to run against a real dataset.")
+def test_real_file_spectra() -> None:
+    r = get_reader(os.environ["SCILS_TEST_FILE"])
+    tic = r.get_tic()
+    for index in (0, 1, r.n_pixels // 2, r.n_pixels - 1):
+        mz, y = r.get_spectrum(index)
+        assert len(mz) == len(y) > 0
+        assert np.all(np.diff(mz) > 0) and r.mz_min - 0.01 <= mz[0] and mz[-1] <= r.mz_max + 0.01
+        np.testing.assert_allclose(y.sum(), tic[index], rtol=1e-4)
+    mz_all, summed = r.get_summed_spectrum(range(0, r.n_pixels, 50), silent=True)
+    assert mz_all.shape == summed.shape == r.mz_axis.shape and summed.sum() > 0

@@ -1,3 +1,4 @@
+import struct
 import zlib
 from dataclasses import dataclass
 from pathlib import Path
@@ -39,15 +40,31 @@ class SyntheticSCiLS:
     rasters: np.ndarray
     norm_values: dict[str, np.ndarray]
     norm_targets: dict[str, float]
+    spectra_mz: list[np.ndarray]  # precise m/z of the peaks of each spot (ascending, same order as the intensities)
 
 
-def encode_spot_indices(spots: np.ndarray) -> bytes:
+def _encode_deltas(deltas: np.ndarray, width: int | None = None) -> tuple[bytes, int]:
+    """Byte-plane shuffle (least-significant bytes first) unsigned integers using `width` (default: minimal) bytes."""
+    peak = int(deltas.max()) if len(deltas) else 0
+    needed = max(1, -(-peak.bit_length() // 8))
+    width = needed if width is None else width
+    assert width >= needed, "width is too small for the deltas"
+    columns = deltas.astype("<u8").view(np.uint8).reshape(-1, 8)[:, :width]
+    return np.ascontiguousarray(columns.T).tobytes(), width
+
+
+def encode_spot_indices(spots: np.ndarray, width: int | None = None) -> bytes:
     """Encode sorted spot indices the way SCiLS does: delta -> byte-planes -> zlib."""
-    deltas = np.diff(spots.astype(np.int64), prepend=0)
-    peak = int(deltas.max())
-    width = 1 if peak < 2**8 else 2 if peak < 2**16 else 4
-    planes = deltas.astype(f"<u{width}").view(np.uint8).reshape(len(deltas), width).T
-    return zlib.compress(np.ascontiguousarray(planes).tobytes())
+    data, _ = _encode_deltas(np.diff(spots.astype(np.int64), prepend=0), width)
+    return zlib.compress(data)
+
+
+def encode_mz(mz: np.ndarray, scale: float = 500_000.0, width: int | None = None) -> bytes:
+    """Encode ascending m/z values the way SCiLS does: fixed-point deltas -> byte-planes -> zlib + 17-byte trailer."""
+    mz = np.asarray(mz, dtype=np.float64)
+    quantized = np.rint((mz - mz[0]) * scale).astype(np.int64)
+    data, width = _encode_deltas(np.diff(quantized, prepend=quantized[0]), width)
+    return zlib.compress(data) + struct.pack("<Bdd", width, scale, mz[0])
 
 
 def encode_length_prefixed(items: dict[str, str]) -> str:
@@ -61,6 +78,7 @@ def write_synthetic_scils(
     n_rasters: int = 1,
     with_tic_normalization: bool = True,
     seed: int = 0,
+    empty_spots: tuple[int, ...] = (),
 ) -> SyntheticSCiLS:
     """Write a small SCiLS .sbd (HDF5) + .slx (SQLite) pair with random sparse data on an irregular grid."""
     import sqlite3
@@ -81,6 +99,7 @@ def write_synthetic_scils(
     density = rng.choice([0.002, 0.02, 0.3], size=n_bins, p=[0.3, 0.4, 0.3])
     dense = (rng.random((n_spots, n_bins)) < density).astype(np.float32)
     dense *= rng.integers(1, 5000, size=(n_spots, n_bins)).astype(np.float32)
+    dense[list(empty_spots)] = 0
 
     # image-major
     spot_chunks, spot_offsets, intensity_offsets, image_intensities = [], [], [], []
@@ -98,7 +117,24 @@ def write_synthetic_scils(
     compressed = np.frombuffer(b"".join(spot_chunks), dtype=np.int8)
     image_intensities = np.concatenate(image_intensities).astype(np.float32)
 
-    # spectrum-major (only intensities; m/z encoding is not supported by the reader)
+    # spectrum-major: precise m/z = axis value + jitter of less than half a bin, so the nearest bin is the true bin
+    spacing = mz_axis[1] - mz_axis[0]
+    mz_blocks, spectra_mz, mz_offsets_spot = [], [], []
+    mz_total = 0
+    for i in range(n_spots):
+        bins = np.flatnonzero(dense[i])
+        mz_offsets_spot.append(mz_total)
+        if len(bins) == 0:
+            spectra_mz.append(np.empty(0))
+            continue
+        mz = mz_axis[bins] + rng.uniform(-0.4, 0.4, len(bins)) * spacing
+        block = encode_mz(mz)
+        mz_blocks.append(block)
+        mz_total += len(block)
+        # what the reader is expected to return (fixed-point quantization of the deltas)
+        quantized = np.rint((mz - mz[0]) * 500_000.0).astype(np.int64)
+        spectra_mz.append(mz[0] + quantized / 500_000.0)
+    compressed_mz = np.frombuffer(b"".join(mz_blocks), dtype=np.int8)
     intensities = np.concatenate([dense[i][dense[i] > 0] for i in range(n_spots)]).astype(np.float32)
     counts = (dense > 0).sum(axis=1)
     intensity_offsets_spot = np.concatenate([[0], np.cumsum(counts)[:-1]]).astype(np.uint64)
@@ -127,6 +163,8 @@ def write_synthetic_scils(
         group.create_dataset("imageIntensities", data=image_intensities)
         group.create_dataset("intensityOffsets", data=intensity_offsets_spot)
         group.create_dataset("intensities", data=intensities)
+        group.create_dataset("mzOffsets", data=np.asarray(mz_offsets_spot, dtype=np.uint64))
+        group.create_dataset("compressedMz", data=compressed_mz)
         for i, (norm_name, values) in enumerate(norm_values.items()):
             norm = group.create_group(f"Normalizations/{i:032x}")
             norm.attrs["name"] = np.array([norm_name.encode()])
@@ -167,4 +205,4 @@ def write_synthetic_scils(
         conn.execute("INSERT INTO Rasters VALUES (?, 'ds1', ?, ?, 2513, 721)", (f"r{r}", r, r))
     conn.commit()
     conn.close()
-    return SyntheticSCiLS(sbd_path, slx_path, dense, mz_axis, x, y, rasters, norm_values, norm_targets)
+    return SyntheticSCiLS(sbd_path, slx_path, dense, mz_axis, x, y, rasters, norm_values, norm_targets, spectra_mz)

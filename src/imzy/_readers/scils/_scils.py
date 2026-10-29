@@ -7,20 +7,29 @@ A SCiLS dataset is a pair of files that share a stem:
 - `.sbd` - HDF5 file with the spectral data, coordinates, regions, normalizations, optical images, etc.
 - `.slx` - SQLite file with acquisition metadata (optional for reading ion images, see `_slx.py`).
 
-Everything needed for ion images lives in the SBD file, mostly inside `SpectraGroup/`. The (sparse, centroided) peak
-data is stored twice:
+Everything needed lives in the SBD file, mostly inside `SpectraGroup/`. The (sparse, centroided) peak data is stored
+twice:
 
-- **image-major** (per m/z bin; used here): `imageSpotOffsets`, `imageIntensityOffsets`, `compressedImageSpots` and
-  `imageIntensities`. The m/z axis is `SamplePositions/GlobalMassAxis/SamplePositions` and bin `j` corresponds to
-  axis value `j`. Bin `j` owns bytes `imageSpotOffsets[j]:imageSpotOffsets[j+1]` of `compressedImageSpots` and floats
-  `imageIntensityOffsets[j]:imageIntensityOffsets[j+1]` of `imageIntensities` (uncompressed).
-- spectrum-major (per spot): `mzOffsets`, `intensityOffsets`, `compressedMz`, `intensities`. The m/z encoding of
-  `compressedMz` has not been decoded, so per-pixel spectra are not supported yet.
+- **image-major** (per m/z bin; used for ion images): `imageSpotOffsets`, `imageIntensityOffsets`,
+  `compressedImageSpots` and `imageIntensities`. The m/z axis is `SamplePositions/GlobalMassAxis/SamplePositions` and
+  bin `j` corresponds to axis value `j`. Bin `j` owns bytes `imageSpotOffsets[j]:imageSpotOffsets[j+1]` of
+  `compressedImageSpots` and floats `imageIntensityOffsets[j]:imageIntensityOffsets[j+1]` of `imageIntensities`
+  (uncompressed).
+- **spectrum-major** (per spot; used for spectra): `mzOffsets`, `intensityOffsets`, `compressedMz` and `intensities`.
+  Spot `s` owns bytes `mzOffsets[s]:mzOffsets[s+1]` of `compressedMz` and floats
+  `intensityOffsets[s]:intensityOffsets[s+1]` of `intensities`, ordered by ascending m/z.
 
-Each bin's byte range is an independent zlib stream. Once decompressed it holds `n` unsigned integers (1, 2, 4 or
-8 bytes wide; `n` is the number of spots in the bin), stored as byte-planes (all least-significant bytes first, i.e.
-the array is transposed) and delta-encoded. Decoding is therefore: `zlib` -> reshape to `(width, n)` -> transpose -> view as
-`uint{8 * width}` -> `cumsum` -> spot indices (sorted). The intensities pair one-to-one with these spot indices.
+Both `compressedImageSpots` and `compressedMz` consist of independent zlib streams, one per bin/spot. Once
+decompressed, a stream holds `n` unsigned integers (`n` = number of spots in the bin / peaks in the spot) that are
+delta-encoded and stored as byte-planes (all least-significant bytes first, i.e. the array is transposed). Decoding is:
+`zlib` -> reshape to `(width, n)` -> transpose -> view as `uint{8 * width}` -> `cumsum`.
+
+- Image-major: the element width is `len(data) // n` (1 - 8 bytes) and the result is the sorted spot indices. The
+  intensities pair one-to-one with these spot indices.
+- Spectrum-major: the width and the (fixed-point) origin are given by a 17-byte trailer that follows the zlib stream:
+  `uint8 width`, `float64 scale` (500,000 in the data seen so far) and `float64 mz0` (the first m/z). The first delta
+  is 0 and `mz = mz0 + cumsum(deltas) / scale`, i.e. the m/z values have a 2 micro-Da resolution - much finer than the
+  global axis. The nearest global axis bin of each peak is the bin in which the image-major layout holds it (99.99 %).
 
 Other relevant datasets: `Registrations/<i>/OriginalCoordinates` (2, n_spots) integer grid coordinates,
 `Registrations/<i>/Rasters/<r>/PixelToWorld` (4, 4; pixel size in micrometers), `MeasurementRasterIndices` (raster index
@@ -37,6 +46,7 @@ open fail. The file is then re-opened in SWMR read mode, which never modifies th
 
 from __future__ import annotations
 
+import struct
 import typing as ty
 import warnings
 import zlib
@@ -46,6 +56,7 @@ from pathlib import Path
 import numpy as np
 from ims_utils.spectrum import get_mzs_for_tol
 from koyo.typing import PathLike
+from tqdm import tqdm
 
 from imzy._readers._base import BaseReader
 from imzy._readers.scils._slx import is_sqlite, read_slx_metadata
@@ -61,6 +72,8 @@ _NORMALIZATION_ALIASES = {
     "root mean square": "root mean square",
 }
 _SHORT_NORMALIZATION_NAMES = {"total ion count": "TIC", "root mean square": "RMS"}
+_MZ_TRAILER = struct.Struct("<Bdd")  # element width, scale, first m/z
+_SPECTRA_CHUNK = 256  # number of spectra that are read from the file at once
 
 
 def _find_sibling(path: Path, suffix: str) -> Path | None:
@@ -111,10 +124,44 @@ def decode_spot_indices(raw: bytes, n: int) -> np.ndarray:
     """
     data = zlib.decompress(raw)
     width, remainder = divmod(len(data), n)
-    if remainder or width not in (1, 2, 4, 8):
+    if remainder or not 1 <= width <= 8:
         raise ValueError(f"Unexpected size of decompressed SCiLS spot block ({len(data)} bytes for {n} spots).")
+    return _undo_delta(data, n, width)
+
+
+def decode_mz(raw: bytes, n: int) -> np.ndarray:
+    """Decode the m/z values of a single spectrum.
+
+    Parameters
+    ----------
+    raw : bytes
+        Compressed bytes of the spectrum, taken from `SpectraGroup/compressedMz`: a zlib stream followed by a 17-byte
+        trailer (element width, scale, first m/z).
+    n : int
+        Number of peaks in the spectrum (`intensityOffsets[s + 1] - intensityOffsets[s]`).
+    """
+    if n == 0:
+        return np.empty(0, dtype=np.float64)
+    decompressor = zlib.decompressobj()
+    data = decompressor.decompress(raw)
+    trailer = decompressor.unused_data
+    if len(trailer) != _MZ_TRAILER.size:
+        raise ValueError(f"Unexpected size of the SCiLS m/z trailer ({len(trailer)} bytes).")
+    width, scale, mz0 = _MZ_TRAILER.unpack(trailer)
+    if not 1 <= width <= 8 or len(data) != width * n or scale <= 0:
+        raise ValueError(f"Unexpected SCiLS m/z block (width={width}, scale={scale}, {len(data)} bytes for {n} peaks).")
+    return mz0 + _undo_delta(data, n, width) / scale
+
+
+def _undo_delta(data: bytes, n: int, width: int) -> np.ndarray:
+    """Un-shuffle byte-planes of `n` unsigned integers of `width` bytes and undo delta-encoding."""
     planes = np.frombuffer(data, dtype=np.uint8).reshape(width, n)
-    deltas = np.ascontiguousarray(planes.T).view(f"<u{width}").reshape(n)
+    if width in (1, 2, 4, 8):
+        deltas = np.ascontiguousarray(planes.T).view(f"<u{width}").reshape(n)
+    else:  # e.g. 3 bytes: pad each element to 8 bytes
+        padded = np.zeros((n, 8), dtype=np.uint8)
+        padded[:, :width] = planes.T
+        deltas = padded.view("<u8").reshape(n)
     return np.cumsum(deltas, dtype=np.int64)
 
 
@@ -214,6 +261,13 @@ class SCiLSReader(BaseReader):
         self._intensity_offsets = self._extend_offsets(
             spectra["imageIntensityOffsets"][:], spectra["imageIntensities"].shape[0]
         )
+        # spectrum-major index (per spot); only needed for spectra and TIC
+        self._has_spectra = all(
+            key in spectra for key in ("mzOffsets", "compressedMz", "intensityOffsets", "intensities")
+        )
+        if self._has_spectra:
+            self._mz_offsets = self._extend_offsets(spectra["mzOffsets"][:], spectra["compressedMz"].shape[0])
+            self._peak_offsets = self._extend_offsets(spectra["intensityOffsets"][:], spectra["intensities"].shape[0])
 
     def _init_geometry(self, f: ty.Any) -> np.ndarray:
         """Load rasters, pixel size and return the raw integer coordinates of all spots, shape (2, n_spots)."""
@@ -378,19 +432,102 @@ class SCiLSReader(BaseReader):
         return data
 
     # ------------------------------------------------------------------------------------------------------------
-    # spectra (not supported yet)
+    # spectra
     # ------------------------------------------------------------------------------------------------------------
+    def _read_chunk(self, f: ty.Any, spots: np.ndarray) -> list[tuple[np.ndarray, np.ndarray]]:
+        """Read and decode the spectra of `spots` (indices of spots in the file); the order is kept."""
+        if not self._has_spectra:
+            raise ValueError("This SCiLS file does not contain per-spot spectra (SpectraGroup/compressedMz, ...).")
+        spectra = f["SpectraGroup"]
+        mz_offsets, peak_offsets = self._mz_offsets, self._peak_offsets
+        lo, hi = int(spots.min()), int(spots.max())
+        if hi - lo + 1 <= 4 * len(spots):  # (mostly) contiguous -> a single read for the whole range
+            mz_start, peak_start = mz_offsets[lo], peak_offsets[lo]
+            compressed = spectra["compressedMz"][mz_start : mz_offsets[hi + 1]].tobytes()
+            intensities = spectra["intensities"][peak_start : peak_offsets[hi + 1]]
+            blocks = [
+                (
+                    compressed[mz_offsets[s] - mz_start : mz_offsets[s + 1] - mz_start],
+                    intensities[peak_offsets[s] - peak_start : peak_offsets[s + 1] - peak_start],
+                )
+                for s in spots
+            ]
+        else:
+            blocks = [
+                (
+                    spectra["compressedMz"][mz_offsets[s] : mz_offsets[s + 1]].tobytes(),
+                    spectra["intensities"][peak_offsets[s] : peak_offsets[s + 1]],
+                )
+                for s in spots
+            ]
+        return [(decode_mz(raw, len(y)), np.asarray(y, dtype=np.float32)) for raw, y in blocks]
+
     def _read_spectrum(self, index: int) -> tuple[np.ndarray, np.ndarray]:
-        raise NotImplementedError("Reading per-pixel spectra is not supported yet for SCiLS datasets.")
+        """Return `(m/z, intensities)` of a pixel."""
+        if not 0 <= index < self.n_pixels:
+            raise IndexError(f"Pixel index {index} is out of bounds for {self.n_pixels} pixels.")
+        with self._open() as f:
+            return self._read_chunk(f, self._spots[[index]])[0]
 
     def _read_spectra(self, indices: np.ndarray | None = None) -> ty.Iterator[tuple[np.ndarray, np.ndarray]]:
-        raise NotImplementedError("Reading per-pixel spectra is not supported yet for SCiLS datasets.")
+        indices = self.pixels if indices is None else np.asarray(indices, dtype=np.int64)
+        if len(indices) and (indices.min() < 0 or indices.max() >= self.n_pixels):
+            raise IndexError(f"Pixel indices must be in the range [0, {self.n_pixels}).")
+        spots = self._spots[indices]
+        with self._open() as f:
+            for start in range(0, len(spots), _SPECTRA_CHUNK):
+                yield from self._read_chunk(f, spots[start : start + _SPECTRA_CHUNK])
+
+    def nearest_mz_bins(self, mz: np.ndarray) -> np.ndarray:
+        """Return indices of the global mass axis bins that are the closest to the specified m/z values."""
+        axis = self._mz_axis
+        right = np.clip(np.searchsorted(axis, mz), 1, len(axis) - 1)
+        return np.where(np.abs(axis[right - 1] - mz) <= np.abs(axis[right] - mz), right - 1, right)
 
     def get_summed_spectrum(
         self, indices: ty.Iterable[int], scales: np.ndarray | None = None, silent: bool = False
     ) -> tuple[np.ndarray, np.ndarray]:
-        """Summed spectrum is not supported yet for SCiLS datasets."""
-        raise NotImplementedError("Summed spectra are not supported yet for SCiLS datasets.")
+        """Sum pixel data to produce summed mass spectrum.
+
+        Peaks are summed on the global mass axis of the file (each peak is assigned to the nearest bin), which is the
+        axis SCiLS uses for its own summed/mean spectra.
+
+        Parameters
+        ----------
+        indices : iterable of int
+            Pixel indices.
+        scales : np.ndarray, optional
+            Multiplier for each pixel (indexed by pixel index, i.e. of length `n_pixels`), e.g. from
+            `get_normalizations`.
+        silent : bool
+            Disable the progress bar.
+
+        Returns
+        -------
+        mz : np.ndarray
+            Global mass axis.
+        intensities : np.ndarray
+            Summed intensities for each point of the axis.
+        """
+        indices = np.asarray(list(indices), dtype=np.int64)
+        if indices.size == 0:
+            raise ValueError("You must specify at least one index.")
+        if np.any(indices >= self.n_pixels) or np.any(indices < 0):
+            raise ValueError("You cannot specify indices that are greater than the total number of pixels.")
+        scales = np.ones(self.n_pixels, dtype=np.float32) if scales is None else np.asarray(scales)
+        summed = np.zeros(len(self._mz_axis), dtype=np.float64)
+        with tqdm(total=len(indices), disable=silent, desc="Summing spectra...") as progress:
+            for start in range(0, len(indices), _SPECTRA_CHUNK):
+                chunk = indices[start : start + _SPECTRA_CHUNK]
+                bins, weights = [], []
+                for index, (mz, y) in zip(chunk, self._read_spectra(chunk), strict=True):
+                    bins.append(self.nearest_mz_bins(mz))
+                    weights.append(y * scales[index])
+                summed += np.bincount(
+                    np.concatenate(bins), weights=np.concatenate(weights), minlength=len(self._mz_axis)
+                )
+                progress.update(len(chunk))
+        return self._mz_axis.copy(), summed
 
     # ------------------------------------------------------------------------------------------------------------
     # TIC
@@ -407,13 +544,13 @@ class SCiLSReader(BaseReader):
                     tic = values * target
                     break
             else:
+                if not self._has_spectra:
+                    raise ValueError("The TIC cannot be determined: the file has no TIC normalization or spectra.")
                 with self._open() as f:
-                    spectra = f["SpectraGroup"]
-                    offsets = spectra["intensityOffsets"][:].astype(np.int64)
-                    intensities = spectra["intensities"][:].astype(np.float64)
+                    intensities = f["SpectraGroup/intensities"][:].astype(np.float64)
+                offsets = self._peak_offsets[:-1]
                 tic = np.zeros(len(offsets))
-                ends = np.append(offsets[1:], len(intensities))
-                nonempty = ends > offsets
+                nonempty = self._peak_offsets[1:] > offsets
                 tic[nonempty] = np.add.reduceat(intensities, offsets[nonempty])
             self._tic = tic[self._spots].astype(np.float32)
         return self._tic
