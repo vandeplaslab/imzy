@@ -10,6 +10,7 @@ from pluggy import PluginManager
 
 from imzy import hookspec
 from imzy._readers.imzml import _imzml
+from imzy._readers.scils import _scils
 
 if not IS_MAC:
     from imzy._readers.bruker import _neoflex, _tdf, _tsf
@@ -33,6 +34,7 @@ class ImzyPluginManager(PluginManager):
         self.add_hookspecs(hookspec)
         # register own plugins
         self.register(_imzml)
+        self.register(_scils)
         if _tdf is not None:
             self.register(_tdf)
         if _tsf is not None:

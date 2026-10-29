@@ -47,6 +47,7 @@ __all__ = (
     "IMZMLWriterWarning",
     "InMemoryStore",
     "NeoFlexReader",
+    "SCiLSReader",
     "SkippedSpectrumWarning",
     "TDFReader",
     "TSFReader",
@@ -66,6 +67,7 @@ _LAZY_IMPORTS = {
     "BaseReader": ("imzy._readers", "BaseReader"),
     "IMZMLReader": ("imzy._readers", "IMZMLReader"),
     "NeoFlexReader": ("imzy._readers", "NeoFlexReader"),
+    "SCiLSReader": ("imzy._readers", "SCiLSReader"),
     "TDFReader": ("imzy._readers", "TDFReader"),
     "TSFReader": ("imzy._readers", "TSFReader"),
     "WatersReader": ("imzy._readers", "WatersReader"),
@@ -108,6 +110,7 @@ if ty.TYPE_CHECKING:
     from imzy._readers import (
         IMZMLReader,
         NeoFlexReader,
+        SCiLSReader,
         TDFReader,
         TSFReader,
         WatersReader,
