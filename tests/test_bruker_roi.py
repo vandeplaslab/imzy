@@ -100,6 +100,7 @@ def test_bruker_roi_crops_spatial_metadata_and_pixel_indices(bruker_path: Path):
     assert reader.get_n_pixels_for_roi(2) == 3
 
 
+@pytest.mark.skipif(IS_MAC, reason="Bruker reader is not supported on macOS.")
 def test_bruker_roi_maps_logical_pixels_to_raw_frame_ids(bruker_path: Path):
     reader = DummyBrukerReader(bruker_path, roi=2)
 
@@ -110,6 +111,7 @@ def test_bruker_roi_maps_logical_pixels_to_raw_frame_ids(bruker_path: Path):
         reader.read_profile_spectrum(3)
 
 
+@pytest.mark.skipif(IS_MAC, reason="Bruker reader is not supported on macOS.")
 def test_bruker_roi_crops_tic_but_reuses_full_cache(bruker_path: Path):
     reader = DummyBrukerReader(bruker_path, roi=2)
     np.testing.assert_array_equal(reader.get_tic(), np.asarray([30, 40, 60]))
@@ -123,6 +125,7 @@ def test_bruker_roi_crops_tic_but_reuses_full_cache(bruker_path: Path):
     assert reader._get_reader_kwargs() == {}
 
 
+@pytest.mark.skipif(IS_MAC, reason="Bruker reader is not supported on macOS.")
 def test_bruker_roi_rejects_unknown_roi(bruker_path: Path):
     with pytest.raises(ValueError, match="ROI 99 was not found"):
         DummyBrukerReader(bruker_path, roi=99)
