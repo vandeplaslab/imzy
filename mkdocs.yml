@@ -1,0 +1,49 @@
+site_name: imzy
+site_description: Read, process, and export imaging mass spectrometry data with Python.
+site_url: https://vandeplaslab.github.io/imzy/
+repo_url: https://github.com/vandeplaslab/imzy
+repo_name: vandeplaslab/imzy
+edit_uri: edit/main/docs/
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.footer
+    - content.code.copy
+plugins:
+  - search
+markdown_extensions:
+  - admonition
+  - toc:
+      permalink: true
+  - pymdownx.highlight
+  - pymdownx.superfences
+  - pymdownx.snippets:
+      check_paths: true
+hooks:
+  - docs/_hooks.py
+exclude_docs: |
+  /_hooks.py
+validation:
+  links:
+    not_found: warn
+    anchors: warn
+    unrecognized_links: warn
+nav:
+  - Home: index.md
+  - Getting started:
+      - Installation: installation.md
+      - Quickstart: quickstart.md
+  - User guide:
+      - Spectra and images: usage.md
+      - Normalization and storage: storage.md
+      - Writing imzML: writing.md
+      - Command line: cli.md
+      - Rust backend: backends.md
+  - Examples: examples.md
+  - API reference: api.md
+  - Performance:
+      - Methodology and reproduction: performance/index.md
+      - Recorded backend comparison: performance/imzml.md
+      - Interactive charts: https://vandeplaslab.github.io/imzy/benchmarks/
+  - Documentation development: development.md

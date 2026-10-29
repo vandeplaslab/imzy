@@ -37,8 +37,37 @@ env:
   MPLBACKEND: Agg
 
 jobs:
+  docs:
+    name: Build documentation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v8.2.0
+        with:
+          version: "0.10.12"
+          python-version: "3.12.13"
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
+      - name: Install isolated documentation environment
+        run: |
+          uv venv .asv/docs-env --python 3.12.13
+          uv pip install --python .asv/docs-env/bin/python --group docs
+      - name: Build strict documentation
+        run: .asv/docs-env/bin/python -m mkdocs build --strict
+      - name: Save documentation site
+        uses: actions/upload-artifact@v7
+        with:
+          name: documentation-site
+          path: site
+          include-hidden-files: true
+          if-no-files-found: error
+
   benchmark:
-    name: Benchmark and build site
+    name: Benchmark and build combined site
+    needs: docs
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:
@@ -70,8 +99,15 @@ jobs:
           uv pip install --python .venv/bin/python --no-deps --no-build-isolation .
           .venv/bin/python -c 'import imzy._imzml_rust'
 
-      - name: Check benchmark correctness and history handling
-        run: .venv/bin/python -m pytest -q tests/test_benchmarks.py tests/test_benchmark_history.py
+      - name: Check benchmark correctness, examples, and history handling
+        run: .venv/bin/python -m pytest -q tests/test_benchmarks.py tests/test_benchmark_history.py tests/test_docs.py
+
+      - name: Download documentation site
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        uses: actions/download-artifact@v8
+        with:
+          name: documentation-site
+          path: site
 
       - name: Configure Pages
         id: pages
@@ -142,6 +178,7 @@ jobs:
           .venv/bin/python scripts/benchmark_history.py check
           .venv/bin/python -m asv publish
           .venv/bin/python scripts/benchmark_history.py pack
+          .venv/bin/python scripts/build_docs_site.py --docs site --benchmarks .asv/html --output .asv/site
 
       - name: Save recovery copy
         if: always() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
@@ -159,10 +196,10 @@ jobs:
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         uses: actions/upload-pages-artifact@v4
         with:
-          path: .asv/html
+          path: .asv/site
 
   deploy:
-    name: Publish benchmark site
+    name: Publish documentation and benchmarks
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     needs: benchmark
     runs-on: ubuntu-24.04

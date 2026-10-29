@@ -7,10 +7,12 @@ import json
 import tarfile
 from pathlib import Path
 from types import SimpleNamespace
+from typing import BinaryIO
 from urllib.error import HTTPError
 
 import pytest
 from scripts import benchmark_history as history
+from scripts.build_docs_site import assemble_site
 
 
 def _results(directory: Path, revision: str = "a" * 40) -> None:
@@ -47,6 +49,38 @@ def test_successive_publications_preserve_history(tmp_path: Path, monkeypatch: p
     history.restore_history("https://example.com/imzy/", final)
     assert len(list((final / "results" / "machine").glob("*-environment.json"))) == 2
     assert json.loads((final / "metadata" / "machine.json").read_text())["threads"] == 2
+
+
+def test_combined_pages_site_keeps_history_and_both_sites(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    original = tmp_path / "history"
+    _results(original)
+    _results(original, "b" * 40)
+    docs, charts, output = tmp_path / "docs", tmp_path / "charts", tmp_path / "combined"
+    for directory, title in ((docs, "Documentation"), (charts, "Charts")):
+        (directory / "assets").mkdir(parents=True)
+        (directory / "index.html").write_text(f"<html><body>{title}</body></html>")
+        (directory / "assets" / "site.js").write_text(title)
+    archive = charts / history.ARCHIVE
+    history.pack_history(original, archive)
+    assemble_site(docs, charts, output)
+
+    assert (output / "index.html").read_text() == (docs / "index.html").read_text()
+    assert (output / "benchmarks" / "index.html").read_text() == (charts / "index.html").read_text()
+    assert (output / "assets" / "site.js").read_text() == "Documentation"
+    assert (output / "benchmarks" / "assets" / "site.js").read_text() == "Charts"
+    assert (output / history.ARCHIVE).read_bytes() == archive.read_bytes()
+    assert (output / "benchmarks" / history.ARCHIVE).read_bytes() == archive.read_bytes()
+    requests = []
+
+    def published(url: str, **kwargs: object) -> BinaryIO:
+        requests.append(url)
+        return (output / history.ARCHIVE).open("rb")
+
+    monkeypatch.setattr(history, "urlopen", published)
+    restored = tmp_path / "restored"
+    history.restore_history("https://example.com/imzy/", restored)
+    assert requests == ["https://example.com/imzy/asv-results.tar.gz"]
+    assert len(list((restored / "results" / "machine").glob("*-environment.json"))) == 2
 
 
 @pytest.mark.parametrize("initialize", [False, True])

@@ -133,7 +133,7 @@ test = [
     "pytest-cov>=6.1.1",
 ]
 docs = [
-  "mkdocs",
+  "mkdocs>=1.6,<2",
   "mkdocs-material",
   "markdown-changelog"
 ]
@@ -152,6 +152,7 @@ dev = [
 [project.urls]
 homepage = "https://github.com/vandeplaslab/imzy"
 repository = "https://github.com/vandeplaslab/imzy"
+documentation = "https://vandeplaslab.github.io/imzy/"
 
 
 # https://github.com/charliermarsh/ruff
@@ -273,6 +274,9 @@ ignore = [
   "scripts/build_package.sh",
   "scripts/importtime.sh",
   "scripts/dump_obo_files.py",
+  "scripts/build_docs_site.py",
+  "mkdocs.yml",
+  "docs/**",
   "CONTRIBUTING.md",
   "CODE_OF_CONDUCT.md",
   "SECURITY.md",
