@@ -16,6 +16,7 @@ from loguru import logger
 from tqdm import tqdm
 
 from imzy.processing import accumulate_peaks_centroid, accumulate_peaks_profile
+from imzy.utilities import read_cache, write_cache
 
 
 class BaseReader:
@@ -562,22 +563,7 @@ class BaseReader:
         data : dict
             dictionary containing cache data
         """
-        cache_dir_path = Path(self.path) / ".icache"
-        cache_dir_path.mkdir(exist_ok=True)
-        tmp_filename = cache_dir_path / (filename + ".tmp.npz")
-        filename = cache_dir_path / (filename + ".npz")
-        np.savez(tmp_filename, **data)
-        try:
-            tmp_filename.rename(filename)
-        except OSError:
-            with suppress(FileNotFoundError):
-                filename.unlink()
-            tmp_filename.rename(filename)
-        except PermissionError:
-            logger.warning("Could not write cache file.")
-        finally:
-            with suppress(FileNotFoundError):
-                tmp_filename.unlink()
+        write_cache(self.path, filename, data)
 
     def _read_cache(self, filename: str, keys: list[str]) -> dict[str, np.ndarray | None]:
         """Load cache metadata.
@@ -589,14 +575,4 @@ class BaseReader:
         keys : list
             Keys to be read when cache file is loaded
         """
-        cache_file_path = Path(self.path) / ".icache" / (filename + ".npz")
-
-        data = {}.fromkeys(keys)
-        if cache_file_path.exists():
-            with np.load(cache_file_path, mmap_mode="r") as f_ptr:
-                for key in keys:
-                    try:
-                        data[key] = f_ptr[key]
-                    except KeyError:
-                        data[key] = None
-        return data
+        return read_cache(self.path, filename, keys)

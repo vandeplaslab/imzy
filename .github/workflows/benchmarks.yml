@@ -82,7 +82,7 @@ jobs:
           persist-credentials: false
       - uses: astral-sh/setup-uv@v8.2.0
         with:
-          version: "0.7.12"
+          version: "0.10.12"
           python-version: "3.12.13"
           enable-cache: true
           cache-dependency-glob: benchmarks/requirements.txt
