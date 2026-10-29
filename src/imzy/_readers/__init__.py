@@ -8,6 +8,7 @@ from koyo.typing import PathLike
 
 from imzy._readers._base import BaseReader
 from imzy._readers.imzml import IMZMLReader
+from imzy._readers.scils import SCiLSReader
 
 if not IS_MAC:
     from imzy._readers.bruker import NeoFlexReader, TDFReader, TSFReader, is_neoflex, is_tdf, is_tsf
@@ -20,7 +21,16 @@ else:
     WatersReader = is_waters = None  # type: ignore[misc,assignment]
 
 
-__all__ = ("BaseReader", "IMZMLReader", "NeoFlexReader", "TDFReader", "TSFReader", "WatersReader", "get_reader")
+__all__ = (
+    "BaseReader",
+    "IMZMLReader",
+    "NeoFlexReader",
+    "SCiLSReader",
+    "TDFReader",
+    "TSFReader",
+    "WatersReader",
+    "get_reader",
+)
 
 
 def get_reader(path: PathLike, **kwargs: ty.Any) -> BaseReader:
