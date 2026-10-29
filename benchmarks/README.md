@@ -1,11 +1,13 @@
 # Performance benchmarks
 
-[Interactive results](https://vandeplaslab.github.io/imzy/) |
+[Documentation](https://vandeplaslab.github.io/imzy/) |
+[Interactive results](https://vandeplaslab.github.io/imzy/benchmarks/) |
 [Raw history archive](https://vandeplaslab.github.io/imzy/asv-results.tar.gz) |
 [ASV documentation](https://asv.readthedocs.io/en/stable/)
 
-The ASV suite tracks imzy's public reader and export workflows across main revisions. The separate
-[local backend report](imzml.md) and `scripts/benchmark_imzml.py` remain available.
+The ASV suite tracks imzy's public reader and export workflows across main revisions. Charts are hosted under
+`/imzy/benchmarks/`; documentation occupies the site root. The raw history archive keeps its original root URL.
+The separate [local backend report](imzml.md) and `scripts/benchmark_imzml.py` remain available.
 
 ## Local setup and runs
 
@@ -94,7 +96,10 @@ After these files are on `main`:
 
 1. In repository Settings > Pages, choose GitHub Actions as the publishing source.
 2. In Actions > Benchmarks > Run workflow, select `main` and enable `initialize_history` for the first run.
-3. After it succeeds, follow the deployment URL or the benchmark link in the project README.
+3. After it succeeds, follow the deployment URL for documentation, or open its `benchmarks/` subdirectory for charts.
+
+The workflow builds documentation in an isolated environment and publishes both sites in one artifact. Existing
+sites migrate without reinitialization: leave `initialize_history` disabled to restore the root history archive.
 
 Normal runs leave `initialize_history` disabled. Main pushes and the weekly Sunday 00:00 UTC schedule benchmark the
 checked-out main revision and publish the site. Re-running a revision replaces its measurements for that environment;

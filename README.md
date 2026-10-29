@@ -17,6 +17,9 @@ imzy provides a common reader interface for imzML, Bruker, and Waters imaging ma
 for reading spectra, extracting ion images, computing common normalization factors, exporting centroid tables to HDF5 or
 Zarr, and converting supported inputs to imzML.
 
+See the [documentation](https://vandeplaslab.github.io/imzy/) for the quickstart, usage guides, runnable examples,
+API reference, and benchmarks.
+
 ## Installation
 
 Install the core package with pip:
@@ -237,7 +240,7 @@ issues.
 
 ### Performance benchmarks
 
-The [benchmark website](https://vandeplaslab.github.io/imzy/) tracks Python and Rust performance across main revisions
+The [benchmark website](https://vandeplaslab.github.io/imzy/benchmarks/) tracks Python and Rust performance across main revisions
 using Airspeed Velocity (ASV). It covers reader initialization, spectra, ion images, TICs, normalizations, and imzML,
 HDF5, and Zarr exports. Results publish after main changes and weekly; pull requests run correctness and smoke checks.
 
@@ -255,6 +258,20 @@ spectra, resets TIC caching, validates results, and alternates backend order. It
 and speedups. Use `--pixels`, `--points`, `--targets`, and `--repeats` to change the workload.
 
 See the [benchmark report](benchmarks/imzml.md) for local measurements and their methodology.
+
+### Documentation
+
+Build the documentation in a separate environment:
+
+```bash
+uv venv .asv/docs-env --python 3.12
+uv pip install --python .asv/docs-env/bin/python --group docs
+.asv/docs-env/bin/python -m mkdocs build --strict
+.asv/docs-env/bin/python -m mkdocs serve
+```
+
+On Windows, use `.asv/docs-env/Scripts/python.exe`. See the
+[documentation development guide](https://vandeplaslab.github.io/imzy/development/) for examples, checks, and Pages setup.
 
 ## License
 
