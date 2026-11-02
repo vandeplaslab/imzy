@@ -104,8 +104,14 @@ def get_pixel_size(path: Path, sql_filename: str | None = None, cache_dir_name: 
             raise ValueError("Failed to extract motor positions from the file!")
 
         x_px, y_px = get_spacing_consecutive(motor_positions[:, 0], motor_positions[:, 1])
-        if not np.isclose(x_px, y_px):
+        if np.isnan(x_px) and np.isnan(y_px):
+            raise ValueError(f"Failed to calculate pixel size: both x_px and y_px are NaN")
+        if not np.isclose(x_px, y_px) and not (np.isnan(x_px) or np.isnan(y_px)):
             raise ValueError(f"Pixel size is not equal in both dimensions: {x_px} vs {y_px}")
+        if np.isnan(x_px):
+            x_px = y_px
+        if np.isnan(y_px):
+            y_px = x_px
         pixel_size = float(x_px)
         write_cache(
             path,
