@@ -23,12 +23,12 @@ from enum import Enum
 from pathlib import Path
 
 import numpy as np
-from koyo.system import IS_LINUX, IS_MAC, IS_WIN
+from koyo.system import IS_LINUX, IS_WIN
 from koyo.typing import PathLike
 from scipy import sparse
 
 from imzy._readers.bruker._mixin import BrukerBaseReader
-from imzy._readers.bruker.utilities import get_sparse_data_from_buffer
+from imzy._readers.bruker.utilities import get_sparse_data_from_buffer, is_tdf
 from imzy.hookspec import hook_impl
 
 _base_path = Path(__file__).parent.absolute()
@@ -283,18 +283,6 @@ class TDFReader(BrukerBaseReader):
                     raise ValueError("Number of mobility bins is not consistent amongst all frames")
                 n_dt_bins = int(n_dt_bins[0][0])
         return n_dt_bins
-
-
-def is_tdf(path: PathLike) -> bool:
-    """Check if path is Bruker .d/tdf."""
-    path = Path(path)
-    return (
-        path.suffix.lower() == ".d"
-        and path.is_dir()
-        and (path / "analysis.tdf").exists()
-        and (path / "analysis.tdf_bin").exists()
-        and not IS_MAC
-    )
 
 
 @hook_impl

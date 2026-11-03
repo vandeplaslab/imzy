@@ -74,6 +74,11 @@ jobs:
           import subprocess
           subprocess.run(["uv", "pip", "install", glob.glob("wheelhouse/*.whl")[0] + "[test]"], check=True)
 
+      # pytsf is the macOS Bruker .d backend; it is built from git, so skip the wheel-only uv config here
+      - name: Install pytsf
+        if: runner.os == 'macOS'
+        run: env -u UV_CONFIG_FILE uv pip install "pytsf @ git+https://github.com/VU-MSRC/timsMac.git@main"
+
       - name: Test
         env:
           NUMBA_DISABLE_JIT: ${{ matrix.platform.os == 'ubuntu-latest' && '1' || '0' }}

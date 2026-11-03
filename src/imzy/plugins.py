@@ -4,18 +4,15 @@ from __future__ import annotations
 
 import typing as ty
 
-from koyo.system import IS_MAC, IS_WIN
+from koyo.system import IS_WIN
 from koyo.typing import PathLike
 from pluggy import PluginManager
 
 from imzy import hookspec
+from imzy._readers.bruker import _neoflex, _tdf, _tsf
 from imzy._readers.imzml import _imzml
 from imzy._readers.scils import _scils
 
-if not IS_MAC:
-    from imzy._readers.bruker import _neoflex, _tdf, _tsf
-else:
-    _tdf = _tsf = _neoflex = None  # type: ignore[assignment]
 if IS_WIN:
     from imzy._readers.waters import _raw
 else:

@@ -6,10 +6,15 @@ import sqlite3
 from pathlib import Path
 
 import numpy as np
+from koyo.system import IS_MAC
 from koyo.typing import PathLike
 
-from imzy._readers.bruker._tsf import TSFReader
 from imzy.hookspec import hook_impl
+
+if IS_MAC:
+    from imzy._readers.bruker._tsf_pytsf import TSFReader
+else:
+    from imzy._readers.bruker._tsf import TSFReader
 
 
 class NeoFlexReader(TSFReader):
@@ -50,15 +55,12 @@ class NeoFlexReader(TSFReader):
 
 def is_neoflex(path: PathLike) -> bool:
     """Check if path is Bruker .d/tsf."""
-    from koyo.system import IS_MAC
-
     path = Path(path)
     return (
         path.suffix.lower() == ".d"
         and path.is_dir()
         and (path / "analysis.tsf").exists()
         and (path / "analysis.tsf_bin").exists()
-        and not IS_MAC
         and _is_neoflex_instrument(path)
     )
 

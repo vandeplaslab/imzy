@@ -78,10 +78,26 @@ Ion extraction expects m/z arrays in ascending order.
 | Format | Support |
 | --- | --- |
 | imzML (`.imzML`/`.ibd`) | Windows, macOS, Linux |
-| Bruker TSF/TDF/NeoFlex (`.d`) | Windows, Linux |
+| Bruker TSF/TDF/NeoFlex (`.d`) | Windows, Linux, macOS (with `pytsf`) |
 | Waters MassLynx (`.raw`) | Windows |
 
 Bruker TDF ion mobility data can be read, but imzML export currently writes spectra collapsed to the m/z axis.
+
+### Bruker on macOS
+
+Bruker ships no timsdata library for macOS, so imzy reads `.d` data there with
+[pytsf](https://github.com/VU-MSRC/timsMac), when it is installed:
+
+```bash
+pip install "pytsf @ git+https://github.com/VU-MSRC/timsMac.git@main"
+```
+
+Differences from Windows/Linux:
+
+- TSF spectra are identical; m/z agrees to about 1 ppm.
+- TDF intensities are the values stored in the file (the vendor library scales them by an undocumented per-file factor).
+- TDF 1/K0 is approximate (about 0.3% with reference ions in the file, a few % otherwise); voltage conversion is not available.
+- Recalibrated states (`use_recalibrated_state=True`) are not applied.
 
 ## Python Usage
 

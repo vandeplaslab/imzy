@@ -131,6 +131,8 @@ test = [
     "imzy[all]",
     "pytest>=8.3.5",
     "pytest-cov>=6.1.1",
+    # macOS Bruker .d backend; kept out of [project] metadata until pytsf is on PyPI
+    "pytsf @ git+https://github.com/VU-MSRC/timsMac.git@main ; sys_platform == 'darwin'",
 ]
 docs = [
   "mkdocs>=1.6,<2",

@@ -9,6 +9,7 @@ from pathlib import Path
 
 import numba
 import numpy as np
+from koyo.typing import PathLike
 
 
 @numba.njit(fastmath=True, cache=True)
@@ -167,3 +168,36 @@ def get_tic(path: Path, sql_filename: str | None = None, cache_dir_name: str | N
             tic = np.ravel(tic)
         write_cache(path, "tic_cache", data={"tic": tic, "region_frames": region_frames}, cache_dir_name=cache_dir_name)
     return tic
+
+
+def is_tsf(path: PathLike) -> bool:
+    """Check if path is Bruker .d/tsf acquired on a timsTOF (non-neofleX) instrument."""
+    path = Path(path)
+    return (
+        path.suffix.lower() == ".d"
+        and path.is_dir()
+        and (path / "analysis.tsf").exists()
+        and (path / "analysis.tsf_bin").exists()
+        and _is_timstof_instrument(path)
+    )
+
+
+def is_tdf(path: PathLike) -> bool:
+    """Check if path is Bruker .d/tdf."""
+    path = Path(path)
+    return (
+        path.suffix.lower() == ".d"
+        and path.is_dir()
+        and (path / "analysis.tdf").exists()
+        and (path / "analysis.tdf_bin").exists()
+    )
+
+
+def _is_timstof_instrument(path: Path) -> bool:
+    """Check if the instrument is not neofleX."""
+    conn = sqlite3.connect(path / "analysis.tsf", check_same_thread=False)
+    cursor = conn.execute("SELECT Key, Value FROM GlobalMetadata WHERE Key='InstrumentName'")
+    key, value = cursor.fetchone()
+    is_neo = key == "InstrumentName" and "neoflex" not in value.lower()
+    conn.close()
+    return is_neo

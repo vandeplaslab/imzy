@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import sqlite3
 import typing as ty
 from ctypes import (
     CDLL,
@@ -20,10 +19,11 @@ from ctypes import (
 from pathlib import Path
 
 import numpy as np
-from koyo.system import IS_LINUX, IS_MAC, IS_WIN
+from koyo.system import IS_LINUX, IS_WIN
 from koyo.typing import PathLike
 
 from imzy._readers.bruker._mixin import BrukerBaseReader
+from imzy._readers.bruker.utilities import is_tsf
 from imzy.hookspec import hook_impl
 
 _base_path = Path(__file__).parent.absolute()
@@ -222,29 +222,6 @@ class TSFReader(BrukerBaseReader):
             else:
                 break
         return intensity_buf[0:required_len]
-
-
-def is_tsf(path: PathLike) -> bool:
-    """Check if path is Bruker .d/tsf."""
-    path = Path(path)
-    return (
-        path.suffix.lower() == ".d"
-        and path.is_dir()
-        and (path / "analysis.tsf").exists()
-        and (path / "analysis.tsf_bin").exists()
-        and not IS_MAC
-        and _is_timstof_instrument(path)
-    )
-
-
-def _is_timstof_instrument(path: Path) -> bool:
-    """Check if the instrument is neofleX."""
-    conn = sqlite3.connect(path / "analysis.tsf", check_same_thread=False)
-    cursor = conn.execute("SELECT Key, Value FROM GlobalMetadata WHERE Key='InstrumentName'")
-    key, value = cursor.fetchone()
-    is_neo = key == "InstrumentName" and "neoflex" not in value.lower()
-    conn.close()
-    return is_neo
 
 
 @hook_impl

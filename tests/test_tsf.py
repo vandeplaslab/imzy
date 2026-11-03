@@ -2,14 +2,14 @@
 
 import numpy as np
 import pytest
-from koyo.system import IS_MAC
 
 from imzy import TSFReader, get_reader
+from imzy._readers.bruker import HAS_BRUKER_BACKEND
 
 from .utilities import get_tsf_data
 
 
-@pytest.mark.skipif(IS_MAC, reason="Bruker reader is not supported on macOS.")
+@pytest.mark.skipif(not HAS_BRUKER_BACKEND, reason="Bruker reader requires `pytsf` on macOS.")
 @pytest.mark.parametrize("path", get_tsf_data())
 def test_init(path):
     reader: TSFReader = get_reader(path)
@@ -63,7 +63,7 @@ def test_init(path):
     assert mz_x.shape == mz_y.shape
 
 
-@pytest.mark.skipif(IS_MAC, reason="Bruker reader is not supported on macOS.")
+@pytest.mark.skipif(not HAS_BRUKER_BACKEND, reason="Bruker reader requires `pytsf` on macOS.")
 @pytest.mark.parametrize("path", get_tsf_data())
 def test_to_zarr(path, tmp_path):
     pytest.importorskip("zarr")
@@ -76,7 +76,7 @@ def test_to_zarr(path, tmp_path):
     assert zarr_path.exists()
 
 
-@pytest.mark.skipif(IS_MAC, reason="Bruker reader is not supported on macOS.")
+@pytest.mark.skipif(not HAS_BRUKER_BACKEND, reason="Bruker reader requires `pytsf` on macOS.")
 @pytest.mark.parametrize("path", get_tsf_data())
 def test_to_h5(path, tmp_path):
     reader = TSFReader(path)
@@ -88,7 +88,7 @@ def test_to_h5(path, tmp_path):
     assert h5_temp != h5_path
 
 
-@pytest.mark.skipif(IS_MAC, reason="Bruker reader is not supported on macOS.")
+@pytest.mark.skipif(not HAS_BRUKER_BACKEND, reason="Bruker reader requires `pytsf` on macOS.")
 @pytest.mark.parametrize("path", get_tsf_data())
 def test_read_centroid_spectrum(path):
     reader = TSFReader(path)
@@ -99,7 +99,7 @@ def test_read_centroid_spectrum(path):
     assert pixel == reader.n_pixels - 1
 
 
-@pytest.mark.skipif(IS_MAC, reason="Bruker reader is not supported on macOS.")
+@pytest.mark.skipif(not HAS_BRUKER_BACKEND, reason="Bruker reader requires `pytsf` on macOS.")
 @pytest.mark.parametrize("path", get_tsf_data())
 def test_norms(path, tmp_path):
     reader = TSFReader(path)
