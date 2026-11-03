@@ -114,7 +114,6 @@ def _compute_normalizations(reader, clean: bool = True, silent: bool = False) ->
                 desc="Computing normalizations...",
             )
         ):
-            y = y.astype(np.float32)
             try:
                 norm_array[i] = calculate_normalizations_optimized(y)
             except Exception:
@@ -165,49 +164,103 @@ def calculate_normalizations(spectrum: np.ndarray) -> np.ndarray:
     return px_norms
 
 
-@numba.njit(fastmath=True, cache=True)
-def calculate_normalizations_optimized(spectrum: np.ndarray) -> np.ndarray:
-    """Calculate various normalizations, optimized version.
+# quantiles of the positive intensities used by the trimmed TIC normalizations
+_QUANTILES = (0.05, 0.1, 0.5, 0.9, 0.95)
 
-    This function expects a float32 spectrum.
+
+@numba.njit(nogil=True, cache=True)
+def _positive_quantiles(positive: np.ndarray) -> np.ndarray:
+    """Linearly interpolated ``_QUANTILES`` (same as ``np.quantile``) without fully sorting the array."""
+    n = positive.size
+    ranks = np.empty(2 * len(_QUANTILES), dtype=np.int64)
+    for j, q in enumerate(_QUANTILES):
+        lo = int(np.floor(q * (n - 1)))
+        ranks[2 * j] = lo
+        ranks[2 * j + 1] = min(lo + 1, n - 1)
+    part = np.partition(positive, ranks)
+
+    out = np.empty(len(_QUANTILES), dtype=np.float64)
+    for j, q in enumerate(_QUANTILES):
+        lo, hi = ranks[2 * j], ranks[2 * j + 1]
+        out[j] = part[lo] + (q * (n - 1) - lo) * (part[hi] - part[lo])
+    return out
+
+
+@numba.njit(nogil=True, cache=True)
+def calculate_normalizations_optimized(spectrum: np.ndarray) -> np.ndarray:
+    """Calculate various normalizations for a single spectrum.
+
+    Accepts integer or floating spectra (no conversion needed) and accumulates in float64. Spectra are mostly
+    zeros, so non-zero values are compacted first and all remaining work runs on those only. Quantiles are taken
+    from the positive values.
     """
     px_norms = np.zeros(12, dtype=np.float32)
+    n = spectrum.size
 
-    # Direct computation without conditions
-    px_norms[0] = np.sum(spectrum)  # TIC
+    # compact non-zero values (the branch is well predicted on sparse spectra)
+    values = np.empty(n, dtype=np.float64)
+    nnz = 0
+    for i in range(n):
+        v = spectrum[i]
+        if v != 0:
+            values[nnz] = v
+            nnz += 1
+
+    # moments over non-zeros; positives are compacted in place
+    n_pos = 0
+    s1, s2, s3, neg_sum = 0.0, 0.0, 0.0, 0.0
+    for j in range(nnz):
+        x = values[j]
+        s1 += x
+        x2 = x * x
+        s2 += x2
+        s3 += x2 * abs(x)
+        if x > 0:
+            values[n_pos] = x
+            n_pos += 1
+        else:
+            neg_sum += x
+
+    px_norms[0] = s1  # TIC
     if px_norms[0] == 0:
         return px_norms
 
-    # Compute these norms directly without extra conditions
-    px_norms[1] = np.sqrt(np.mean(np.square(spectrum)))  # RMS
-    px_norms[9] = np.linalg.norm(spectrum, 0)  # 0-norm
-    px_norms[10] = np.linalg.norm(spectrum, 2)  # 2-norm
-    px_norms[11] = np.linalg.norm(spectrum, 3)  # 3-norm
+    px_norms[1] = np.sqrt(s2 / n)  # RMS
+    px_norms[9] = nnz  # 0-norm
+    px_norms[10] = np.sqrt(s2)  # 2-norm
+    px_norms[11] = np.cbrt(s3)  # 3-norm
 
-    # Filter positive values once and reuse
-    positive_spectrum = spectrum[spectrum > 0]
-    px_norms[2] = np.median(positive_spectrum) if positive_spectrum.size > 0 else 0  # Median
+    if n_pos == 0:
+        return px_norms
 
-    # Calculating quantiles once for all needed
-    if positive_spectrum.size > 1:
-        q95, q90, q10, q5 = np.nanquantile(positive_spectrum, [0.95, 0.9, 0.1, 0.05])
-    else:
-        q95, q90, q10, q5 = 0, 0, 0, 0
+    positive = values[:n_pos]
+    q5, q10, median, q90, q95 = _positive_quantiles(positive)
+    px_norms[2] = median  # Median
+    if n_pos == 1:
+        q5, q10, q90, q95 = 0.0, 0.0, 0.0, 0.0
 
-    # Using logical indexing with boolean arrays might be faster due to numba optimization
-    condition_q95 = spectrum < q95
-    condition_q90 = spectrum < q90
-    condition_q5 = spectrum > q5
-    condition_q10 = spectrum > q10
+    # thresholded sums over positives; negatives are always below q90/q95 and never above q5/q10
+    lt95, lt90, gt5, gt10, mid95, mid90 = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+    for x in positive:
+        if x < q95:
+            lt95 += x
+            if x > q5:
+                mid95 += x
+        if x < q90:
+            lt90 += x
+            if x > q10:
+                mid90 += x
+        if x > q5:
+            gt5 += x
+        if x > q10:
+            gt10 += x
 
-    px_norms[3] = np.sum(spectrum[condition_q95])  # 0-95% TIC
-    px_norms[4] = np.sum(spectrum[condition_q90])  # 0-90% TIC
-    px_norms[5] = np.sum(spectrum[condition_q5])  # 5-100% TIC
-    px_norms[6] = np.sum(spectrum[condition_q10])  # 10-100% TIC
-
-    # For ranges, we can combine conditions
-    px_norms[7] = np.sum(spectrum[condition_q5 & condition_q95])  # 5-95% TIC
-    px_norms[8] = np.sum(spectrum[condition_q10 & condition_q90])  # 10-90% TIC
+    px_norms[3] = neg_sum + lt95  # 0-95% TIC (x < q95)
+    px_norms[4] = neg_sum + lt90  # 0-90% TIC (x < q90)
+    px_norms[5] = gt5  # 5-100% TIC (x > q5)
+    px_norms[6] = gt10  # 10-100% TIC (x > q10)
+    px_norms[7] = mid95  # 5-95% TIC (q5 < x < q95)
+    px_norms[8] = mid90  # 10-90% TIC (q10 < x < q90)
     return px_norms
 
 
