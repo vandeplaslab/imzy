@@ -282,6 +282,7 @@ ignore = [
   "SECURITY.md",
   ".idea/**/*",
   "examples/**/*",
+  "CLAUDE.md",
 ]
 ignore-bad-ideas = [
     "src/imzy/**/*.so",
