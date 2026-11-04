@@ -1,11 +1,9 @@
 """Init."""
 
-from importlib.util import find_spec
-
-from koyo.system import IS_MAC
+from koyo.system import IS_MAC, is_installed
 
 # Bruker ships no timsdata library for macOS, so there we use the pure-Python `pytsf` package when it's installed.
-HAS_BRUKER_BACKEND = not IS_MAC or find_spec("pytsf") is not None
+HAS_BRUKER_BACKEND = not IS_MAC or is_installed("pytsf")
 
 if not IS_MAC:
     from imzy._readers.bruker import _tdf, _tsf
