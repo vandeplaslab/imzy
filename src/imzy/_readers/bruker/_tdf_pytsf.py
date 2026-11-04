@@ -20,7 +20,7 @@ from scipy import sparse
 
 from imzy._readers.bruker._mixin import BrukerBaseReader
 from imzy._readers.bruker._tsf_pytsf import forward_pytsf_warnings, log_ignored_recalibration
-from imzy._readers.bruker.utilities import is_tdf
+from imzy._readers.bruker.utilities import is_tdf, peaks_to_csc, peaks_to_profile
 from imzy.hookspec import hook_impl
 
 
@@ -116,13 +116,61 @@ class TDFReader(BrukerBaseReader):
         """Convert voltages to scan numbers."""
         raise NotImplementedError("Voltage to scan number conversion is not available with the pytsf backend.")
 
-    def read_frame(self, frame_id: int) -> sparse.csr_matrix:
-        """Read frame as sparse (m/z bins, mobility bins) matrix."""
+    def has_recalibrated_state(self) -> bool:
+        """Recalibrated states are not supported by `pytsf`."""
+        return False
+
+    def ook0_to_ccs(self, ook0: float, charge: int, mz: float) -> float:
+        """Convert 1/K0 to CCS (Angstrom^2) using the Mason-Schamp equation (305 K, as Bruker)."""
+        return float(oneoverk0_to_ccs(ook0, mz, charge))
+
+    def read_frame_csc(self, frame_id: int, mz_min_idx: int = 0, mz_max_idx: int | None = None) -> sparse.csc_matrix:
+        """Read raw Bruker frame as CSC matrix of shape (mz_max_idx - mz_min_idx, n_dt_bins).
+
+        Row 0 corresponds to TOF index `mz_min_idx`; columns are mobility scans.
+        """
+        if mz_max_idx is None:
+            mz_max_idx = self.n_mz_bins
+        # frame ids must be python ints - sqlite3 binds numpy integers as blobs
         frame = self._tdf.read_frame(int(frame_id))
-        rows, cols, data = frame.tof_indices, frame.scan, frame.intensities
-        mask = (rows < self.n_mz_bins) & (cols < self.n_dt_bins)
-        out_arr = sparse.coo_matrix((data[mask], (rows[mask], cols[mask])), shape=self.frame_shape, dtype=np.int32)
-        return out_arr.asformat("csr")
+        data, indices, indptr = peaks_to_csc(
+            frame.scan_offsets, frame.tof_indices, frame.intensities, self.n_dt_bins, mz_min_idx, mz_max_idx
+        )
+        return sparse.csc_matrix((data, indices, indptr), shape=(mz_max_idx - mz_min_idx, self.n_dt_bins), copy=False)
+
+    def read_frame(self, frame_id: int) -> sparse.csr_matrix:
+        """Read raw Bruker frame as CSR matrix of shape (n_mz_bins, n_dt_bins)."""
+        return self.read_frame_csc(frame_id).tocsr()
+
+    def read_scans(self, frame_id: int, scan_begin: int, scan_end: int) -> np.ndarray:
+        """Read a range of scans from a frame in the vendor 'tims_read_scans_v2' buffer layout.
+
+        The layout is the number of peaks of each scan, followed by the TOF indices and then the intensities of each
+        scan in turn, all as uint32.
+        """
+        frame = self._tdf.read_frame(int(frame_id))
+        scan_end = min(scan_end, frame.num_scans)
+        offsets = frame.scan_offsets[scan_begin : scan_end + 1]
+        n_scans = len(offsets) - 1
+        counts = np.diff(offsets)
+        start, end = int(offsets[0]), int(offsets[-1])
+        local_offsets = offsets[:-1] - start
+
+        # position of every peak's TOF index in the buffer; its intensity follows the scan's indices
+        scan_of_peak = np.repeat(np.arange(n_scans), counts)
+        rank = np.arange(end - start) - local_offsets[scan_of_peak]
+        index_pos = n_scans + 2 * local_offsets[scan_of_peak] + rank
+        buffer = np.empty(n_scans + 2 * (end - start), dtype=np.uint32)
+        buffer[:n_scans] = counts
+        buffer[index_pos] = frame.tof_indices[start:end]
+        buffer[index_pos + counts[scan_of_peak]] = frame.intensities[start:end]
+        return buffer
+
+    def read_frame_profile(self, frame_id: int) -> np.ndarray:
+        """Read raw Bruker frame summed over the mobility dimension."""
+        frame = self._tdf.read_frame(int(frame_id))
+        end = frame.scan_offsets[min(self.n_dt_bins, frame.scan_offsets.size - 1)]
+        return peaks_to_profile(frame.tof_indices[:end], frame.intensities[:end], self.n_mz_bins)
 
     def _read_spectrum(self, index: int) -> tuple[np.ndarray, np.ndarray]:
         """Return profile spectrum."""
@@ -130,7 +178,7 @@ class TDFReader(BrukerBaseReader):
 
     def read_profile_spectrum(self, index: int) -> np.ndarray:
         """Return profile spectrum."""
-        return self.read_frame(self._frame_id_for_index(index)).sum(axis=1).A.flatten()
+        return self.read_frame_profile(self._frame_id_for_index(index))
 
     def get_n_mobility_bins(self, quick: bool = True) -> int:
         """Get the number of ion mobility bins in the file."""

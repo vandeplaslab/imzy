@@ -43,6 +43,9 @@ class WatersReader(BaseReader):
 
     # mass offset when determining the mz range (can't remember why...)
     mz_offset: float = 5
+    # TODO: read the number of drift bins from the SDK (`getDriftScanCount` is not wrapped yet); 200 is the
+    #  number of bins used by Waters HDMS acquisitions
+    n_drift_bins: int = 200
     _mz_min: float
     _mz_max: float
     _mz_ppm: float | None = 5.0  # default m/z ppm spacing
@@ -148,14 +151,14 @@ class WatersReader(BaseReader):
     def _enable_faster_iter(self) -> ty.Generator[None, None, None]:
         """Context manager to temporarily enable faster iteration mode."""
         auto_profile = self.auto_profile
+        enable_ion_mobility = self.enable_ion_mobility
         self.auto_profile = False
-        enable_faster_iter = True
         self.enable_ion_mobility = False
         try:
             yield
         finally:
             self.auto_profile = auto_profile
-            self.enable_ion_mobility = enable_faster_iter
+            self.enable_ion_mobility = enable_ion_mobility
 
     def _setup_functions(self) -> tuple[int, dict, int, float, float, list[float], int]:
         """Get stats for each function."""
@@ -172,7 +175,7 @@ class WatersReader(BaseReader):
 
             stats_in_functions[fcn] = {
                 "n_scans": _scans,
-                "mass_range": mass_range,
+                "mass_range": list(_mass_range),
                 "ion_mode": ion_mode,
                 "fcn_type": fcn_type,
             }
@@ -199,17 +202,6 @@ class WatersReader(BaseReader):
 
         Collect image dimension information and ensure the x/y coordinate indexing is matching that of the library.
         """
-
-        def _reindex(coordinates: np.ndarray) -> np.ndarray:
-            """Waters coordinates are floats that can be positive or negative.
-
-            We simply convert the floats to increasing integers that are a lot easier to deal with
-            """
-            coordinates = coordinates + np.abs(np.min(coordinates))
-            spacing = np.diff(np.sort(coordinates)).max()
-            coordinates = np.round(coordinates / spacing).astype(np.int32)
-            return coordinates
-
         x_coordinates_, y_coordinates_, frame_indices = [], [], []
         scan_id = 0
         frame_to_fcn = {}
@@ -223,8 +215,8 @@ class WatersReader(BaseReader):
                 scan_id += 1
 
         self.frame_to_fcn = frame_to_fcn
-        x_coordinates = _reindex(np.asarray(x_coordinates_))
-        y_coordinates = _reindex(np.asarray(y_coordinates_))
+        x_coordinates = reindex_coordinates(np.asarray(x_coordinates_))
+        y_coordinates = reindex_coordinates(np.asarray(y_coordinates_))
         self._xyz_coordinates = np.column_stack((x_coordinates, y_coordinates, np.ones_like(x_coordinates)))
         self.frame_indices = np.asarray(frame_indices)
         self.x_min, self.x_max = get_min_max(x_coordinates)  # type: ignore[assignment]
@@ -246,7 +238,7 @@ class WatersReader(BaseReader):
                 0,
                 1,
             )
-            n_dt_bins = 200
+            n_dt_bins = self.n_drift_bins
         except MassLynxException:
             n_dt_bins = 1
         return n_dt_bins
@@ -271,7 +263,7 @@ class WatersReader(BaseReader):
         if self._tic is None:
             tic_y = []
             for fcn in self.stats_in_functions:
-                tic_y_ = self.chromatogram_reader.ReadTIC(fcn)  # type: ignore[no-untyped-call]
+                _, tic_y_ = self.chromatogram_reader.ReadTIC(fcn)  # type: ignore[no-untyped-call]
                 tic_y.extend(tic_y_)
             self._tic = np.asarray(tic_y)
         return self._tic
@@ -309,8 +301,10 @@ class WatersReader(BaseReader):
         return x, y  # type: ignore[no-any-return]
 
     def _read_scan_buffer_dt(
-        self, fcn: int, frame_id: int, scan_begin: int = 0, scan_end: int = 200
+        self, fcn: int, frame_id: int, scan_begin: int = 0, scan_end: int | None = None
     ) -> list[tuple[np.ndarray, np.ndarray]]:
+        if scan_end is None:
+            scan_end = self.n_drift_bins
         res = []
         for drift_id in range(scan_begin, scan_end):
             x_, y_ = self.data_reader.ReadDriftScan(fcn, frame_id, drift_id)
@@ -346,6 +340,22 @@ class WatersReader(BaseReader):
             x, y, _ = self._centroid_to_profile(x, y, resolution=self.resolution, mz_grid=mz_x)
             mz_y += y
         return mz_x, mz_y
+
+
+def reindex_coordinates(coordinates: np.ndarray) -> np.ndarray:
+    """Convert Waters stage positions (floats, possibly negative) to zero-based integer pixel indices.
+
+    The pixel step is the smallest spacing between consecutive unique positions, so gaps in the acquisition
+    (e.g. missing lines) do not inflate it.
+    """
+    coordinates = np.asarray(coordinates, dtype=np.float64)
+    coordinates = coordinates - coordinates.min()
+    diffs = np.diff(np.unique(coordinates))
+    if diffs.size == 0:
+        return np.zeros(coordinates.shape, dtype=np.int32)
+    # ignore floating point jitter between positions that are nominally identical
+    spacing = diffs[diffs > diffs.max() * 1e-3].min()
+    return np.round(coordinates / spacing).astype(np.int32)
 
 
 def is_waters(path: PathLike) -> bool:

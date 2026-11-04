@@ -61,6 +61,10 @@ class TSFReader(BrukerBaseReader):
             self._tsf.close()
             self._tsf = None
 
+    def has_recalibrated_state(self) -> bool:
+        """Recalibrated states are not supported by `pytsf`."""
+        return False
+
     @property
     def is_centroid(self) -> bool:
         """Determine whether the data is centroided."""
@@ -82,8 +86,21 @@ class TSFReader(BrukerBaseReader):
         return self.mz_x, self.read_profile_spectrum(index)
 
     def read_centroid_spectrum(self, index: int) -> tuple[np.ndarray, np.ndarray]:
-        """Read centroid spectrum."""
-        frame_id = self._frame_id_for_index(index)
+        """Read centroid spectrum (m/zs, intensities) for a pixel index."""
+        return self.read_centroid_frame(self._frame_id_for_index(index))
+
+    def read_centroid_spectrum_with_width(self, index: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Read centroid spectrum (m/zs, intensities, widths) for a pixel index."""
+        return self.read_centroid_frame_with_width(self._frame_id_for_index(index))
+
+    def read_profile_spectrum(self, index: int) -> np.ndarray:
+        """Read profile spectrum (intensities) for a pixel index."""
+        return self.read_profile_frame(self._frame_id_for_index(index))
+
+    def read_centroid_frame(self, frame_id: int) -> tuple[np.ndarray, np.ndarray]:
+        """Read centroid spectrum (m/zs, intensities) for a raw Bruker frame id."""
+        # frame ids must be python ints - sqlite3 binds numpy integers as blobs
+        frame_id = int(frame_id)
         try:
             indices, intensities = self._tsf.read_line_spectrum(frame_id)
         except TsfError as exc:
@@ -91,9 +108,9 @@ class TSFReader(BrukerBaseReader):
         mzs = self.index_to_mz(frame_id, indices)
         return mzs.astype(np.float64, copy=False), intensities.astype(np.float32, copy=False)
 
-    def read_centroid_spectrum_with_width(self, index: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Read centroid spectrum with peak widths."""
-        frame_id = self._frame_id_for_index(index)
+    def read_centroid_frame_with_width(self, frame_id: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Read centroid spectrum (m/zs, intensities, widths) for a raw Bruker frame id."""
+        frame_id = int(frame_id)
         try:
             indices, intensities, widths = self._tsf.read_line_spectrum_with_width(frame_id)
         except TsfError as exc:
@@ -105,11 +122,10 @@ class TSFReader(BrukerBaseReader):
             widths.astype(np.float32, copy=False),
         )
 
-    def read_profile_spectrum(self, index: int) -> np.ndarray:
-        """Read profile spectrum."""
-        frame_id = self._frame_id_for_index(index)
+    def read_profile_frame(self, frame_id: int) -> np.ndarray:
+        """Read profile spectrum (intensities) for a raw Bruker frame id."""
         try:
-            return self._tsf.read_profile_spectrum(frame_id).astype(np.uint32, copy=False)
+            return self._tsf.read_profile_spectrum(int(frame_id)).astype(np.uint32, copy=False)
         except TsfError as exc:
             # vendor library raises RuntimeError when there are no profile spectra
             raise RuntimeError(str(exc)) from exc

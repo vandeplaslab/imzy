@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import sqlite3
 from pathlib import Path
 
 import numpy as np
 from koyo.system import IS_MAC
 from koyo.typing import PathLike
 
+from imzy._readers.bruker.utilities import get_instrument_name
 from imzy.hookspec import hook_impl
 
 if IS_MAC:
@@ -67,12 +67,7 @@ def is_neoflex(path: PathLike) -> bool:
 
 def _is_neoflex_instrument(path: Path) -> bool:
     """Check if the instrument is neofleX."""
-    conn = sqlite3.connect(path / "analysis.tsf", check_same_thread=False)
-    cursor = conn.execute("SELECT Key, Value FROM GlobalMetadata WHERE Key='InstrumentName'")
-    key, value = cursor.fetchone()
-    is_neo = key == "InstrumentName" and "neoflex" in value.lower()
-    conn.close()
-    return is_neo
+    return "neoflex" in get_instrument_name(path).lower()
 
 
 @hook_impl

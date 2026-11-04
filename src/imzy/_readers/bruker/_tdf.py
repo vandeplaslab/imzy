@@ -28,7 +28,7 @@ from koyo.typing import PathLike
 from scipy import sparse
 
 from imzy._readers.bruker._mixin import BrukerBaseReader
-from imzy._readers.bruker.utilities import get_sparse_data_from_buffer, is_tdf
+from imzy._readers.bruker.utilities import is_tdf, scan_buffer_to_csc, scan_buffer_to_profile
 from imzy.hookspec import hook_impl
 
 _base_path = Path(__file__).parent.absolute()
@@ -164,7 +164,13 @@ class PressureStrategy(Enum):
     PerFrameCompensation = 2
 
 
+#: arbitrary upper limit of a single frame (in bytes), same as Bruker's reference implementation
+MAX_FRAME_BYTES = 16777216
+
+
 class TDFReader(BrukerBaseReader):
+    """Bruker .d/tdf reader using the vendor `timsdata` library."""
+
     sql_filename = "analysis.tdf"
 
     def __init__(
@@ -176,7 +182,8 @@ class TDFReader(BrukerBaseReader):
     ):
         self.use_recalibrated_state = use_recalibrated_state
         self.pressure_compensation_strategy = pressure_compensation_strategy
-        self.buffer_size_profile = 1024  # may grow in _read_scans()
+        # reusable scan buffer (uint32); grows in `_read_scans_into_buffer`
+        self._scan_buffer = np.empty(1024, dtype=np.uint32)
         super().__init__(path, roi=roi)
 
     def _init(self) -> None:
@@ -222,19 +229,33 @@ class TDFReader(BrukerBaseReader):
         """Convert voltages to scan numbers."""
         return self._call_conversion_func(frame_id, voltages, self.dll.tims_voltage_to_scannum)
 
-    # noinspection PyMissingOrEmptyDocstring
+    def has_recalibrated_state(self) -> bool:
+        """Check whether the dataset has a recalibrated state."""
+        return bool(self.dll.tims_has_recalibrated_state(self.handle))
+
+    def ook0_to_ccs(self, ook0: float, charge: int, mz: float) -> float:
+        """Convert 1/K0 to CCS (Angstrom^2) using the Mason-Schamp equation."""
+        return self.dll.tims_oneoverk0_to_ccs_for_mz(ook0, charge, mz)
+
+    def read_frame_csc(self, frame_id: int, mz_min_idx: int = 0, mz_max_idx: int | None = None) -> sparse.csc_matrix:
+        """Read raw Bruker frame as CSC matrix of shape (mz_max_idx - mz_min_idx, n_dt_bins).
+
+        Row 0 corresponds to TOF index `mz_min_idx`; columns are mobility scans.
+        """
+        if mz_max_idx is None:
+            mz_max_idx = self.n_mz_bins
+        buffer = self._read_scans_into_buffer(frame_id, 0, self.n_dt_bins)
+        data, indices, indptr = scan_buffer_to_csc(buffer, self.n_dt_bins, mz_min_idx, mz_max_idx)
+        return sparse.csc_matrix((data, indices, indptr), shape=(mz_max_idx - mz_min_idx, self.n_dt_bins), copy=False)
+
     def read_frame(self, frame_id: int) -> sparse.csr_matrix:
-        buffer = self._read_scan_buffer_profile(frame_id, 0, self.n_dt_bins)
+        """Read raw Bruker frame as CSR matrix of shape (n_mz_bins, n_dt_bins)."""
+        return self.read_frame_csc(frame_id).tocsr()
 
-        # get COO matrix data
-        data, rows, cols = get_sparse_data_from_buffer(buffer, 0, self.n_mz_bins, 0, self.n_dt_bins)
-
-        # build COO matrix
-        out_arr = sparse.coo_matrix((data, (rows, cols)), shape=self.frame_shape, dtype=np.int32)
-        del data, rows, cols
-
-        # convert to appropriate format and apply m/z restrictions
-        return out_arr.asformat("csr")
+    def read_frame_profile(self, frame_id: int) -> np.ndarray:
+        """Read raw Bruker frame summed over the mobility dimension."""
+        buffer = self._read_scans_into_buffer(frame_id, 0, self.n_dt_bins)
+        return scan_buffer_to_profile(buffer, self.n_dt_bins, self.n_mz_bins)
 
     def _read_spectrum(self, index: int) -> tuple[np.ndarray, np.ndarray]:
         """Return profile spectrum."""
@@ -242,33 +263,90 @@ class TDFReader(BrukerBaseReader):
 
     def read_profile_spectrum(self, index: int) -> np.ndarray:
         """Return profile spectrum."""
-        return self.read_frame(self._frame_id_for_index(index)).sum(axis=1).A.flatten()
+        return self.read_frame_profile(self._frame_id_for_index(index))
 
-    def _read_scan_buffer_profile(self, index: int, scan_begin: int, scan_end: int) -> np.ndarray:
-        """Read a range of scans from a frame.
+    def read_scans(self, frame_id: int, scan_begin: int, scan_end: int) -> np.ndarray:
+        """Read a range of scans from a frame in the 'tims_read_scans_v2' buffer layout (see 'timsdata.h')."""
+        return self._read_scans_into_buffer(frame_id, scan_begin, scan_end).copy()
 
-        Returning the data in the low-level buffer format defined for the 'tims_read_scans_v2' DLL function
-         (see documentation in 'timsdata.h').
+    def _read_scans_into_buffer(self, frame_id: int, scan_begin: int, scan_end: int) -> np.ndarray:
+        """Read scans into the reusable buffer and return a view of it.
+
+        The view is overwritten by the next call, so it must be consumed (or copied) straight away.
         """
-        # buffer-growing loop
         while True:
-            cnt = int(self.buffer_size_profile)  # necessary cast to run with python 3.5
-            buf = np.empty(shape=cnt, dtype=np.uint32)
-
+            buf = self._scan_buffer
+            n_bytes = 4 * buf.size
             required_len = self.dll.tims_read_scans_v2(
-                self.handle, index, scan_begin, scan_end, buf.ctypes.data_as(POINTER(c_uint32)), cnt
+                self.handle, frame_id, scan_begin, scan_end, buf.ctypes.data_as(POINTER(c_uint32)), n_bytes
             )
             if required_len == 0:
                 _throw_last_error(self.dll)
-
-            if required_len > self.buffer_size_profile:
-                if required_len > 16777216:
-                    # arbitrary limit for now...
+            if required_len > n_bytes:
+                if required_len > MAX_FRAME_BYTES:
                     raise RuntimeError("Maximum expected frame size exceeded.")
-                self.buffer_size_profile = required_len  # grow buffer
+                self._scan_buffer = np.empty(required_len // 4 + 1, dtype=np.uint32)  # grow buffer
             else:
                 break
-        return buf
+        return buf[: required_len // 4]
+
+    def read_pasef_msms(self, precursor_list: ty.Sequence[int]) -> dict[int, tuple[np.ndarray, np.ndarray]]:
+        """Read peak-picked MS/MS spectra for a list of precursors -> {precursor_id: (mz_values, area_values)}."""
+        precursors_for_dll = np.array(precursor_list, dtype=np.int64)
+        result: dict[int, tuple[np.ndarray, np.ndarray]] = {}
+
+        @MSMS_SPECTRUM_FUNCTOR
+        def callback_for_dll(precursor_id, num_peaks, mz_values, area_values):  # type: ignore[no-untyped-def]
+            result[precursor_id] = (np.array(mz_values[0:num_peaks]), np.array(area_values[0:num_peaks]))
+
+        rc = self.dll.tims_read_pasef_msms(
+            self.handle, precursors_for_dll.ctypes.data_as(POINTER(c_int64)), len(precursor_list), callback_for_dll
+        )
+        if rc == 0:
+            _throw_last_error(self.dll)
+        return result
+
+    def read_pasef_msms_for_frame(self, frame_id: int) -> dict[int, tuple[np.ndarray, np.ndarray]]:
+        """Read peak-picked MS/MS spectra for a frame -> {precursor_id: (mz_values, area_values)}."""
+        result: dict[int, tuple[np.ndarray, np.ndarray]] = {}
+
+        @MSMS_SPECTRUM_FUNCTOR
+        def callback_for_dll(precursor_id, num_peaks, mz_values, area_values):  # type: ignore[no-untyped-def]
+            result[precursor_id] = (np.array(mz_values[0:num_peaks]), np.array(area_values[0:num_peaks]))
+
+        rc = self.dll.tims_read_pasef_msms_for_frame(self.handle, frame_id, callback_for_dll)
+        if rc == 0:
+            _throw_last_error(self.dll)
+        return result
+
+    def read_pasef_profile_msms(self, precursor_list: ty.Sequence[int]) -> dict[int, np.ndarray]:
+        """Read "quasi profile" MS/MS spectra for a list of precursors -> {precursor_id: intensity_values}."""
+        precursors_for_dll = np.array(precursor_list, dtype=np.int64)
+        result: dict[int, np.ndarray] = {}
+
+        @MSMS_PROFILE_SPECTRUM_FUNCTOR
+        def callback_for_dll(precursor_id, num_points, intensity_values):  # type: ignore[no-untyped-def]
+            result[precursor_id] = np.array(intensity_values[0:num_points])
+
+        rc = self.dll.tims_read_pasef_profile_msms(
+            self.handle, precursors_for_dll.ctypes.data_as(POINTER(c_int64)), len(precursor_list), callback_for_dll
+        )
+        if rc == 0:
+            _throw_last_error(self.dll)
+        return result
+
+    def read_pasef_profile_msms_for_frame(self, frame_id: int) -> dict[int, np.ndarray]:
+        """Read "quasi profile" MS/MS spectra for a frame -> {precursor_id: intensity_values}."""
+        result: dict[int, np.ndarray] = {}
+
+        @MSMS_PROFILE_SPECTRUM_FUNCTOR
+        def callback_for_dll(precursor_id, num_points, intensity_values):  # type: ignore[no-untyped-def]
+            result[precursor_id] = np.array(intensity_values[0:num_points])
+
+        rc = self.dll.tims_read_pasef_profile_msms_for_frame(self.handle, frame_id, callback_for_dll)
+        if rc == 0:
+            _throw_last_error(self.dll)
+        return result
 
     def get_n_mobility_bins(self, quick: bool = True) -> int:
         """Get the number of ion mobility bins in the file."""
