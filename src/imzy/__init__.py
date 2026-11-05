@@ -38,6 +38,7 @@ def discover_plugins():
 
 __version__: str = get_version()
 __all__ = (
+    "BAFReader",
     "BaseReader",
     "EmptySpectrumWarning",
     "H5CentroidsStore",
@@ -47,6 +48,7 @@ __all__ = (
     "IMZMLWriterWarning",
     "InMemoryStore",
     "NeoFlexReader",
+    "RapiflexReader",
     "SCiLSReader",
     "SkippedSpectrumWarning",
     "TDFReader",
@@ -64,9 +66,11 @@ _LAZY_IMPORTS = {
     "InMemoryStore": ("imzy._centroids", "InMemoryStore"),
     "ZarrCentroidsStore": ("imzy._centroids", "ZarrCentroidsStore"),
     # Readers
+    "BAFReader": ("imzy._readers", "BAFReader"),
     "BaseReader": ("imzy._readers", "BaseReader"),
     "IMZMLReader": ("imzy._readers", "IMZMLReader"),
     "NeoFlexReader": ("imzy._readers", "NeoFlexReader"),
+    "RapiflexReader": ("imzy._readers", "RapiflexReader"),
     "SCiLSReader": ("imzy._readers", "SCiLSReader"),
     "TDFReader": ("imzy._readers", "TDFReader"),
     "TSFReader": ("imzy._readers", "TSFReader"),
@@ -108,8 +112,10 @@ if ty.TYPE_CHECKING:
     from imzy._centroids import H5CentroidsStore, InMemoryStore, ZarrCentroidsStore
     from imzy._normalizations import H5NormalizationStore, get_normalizations
     from imzy._readers import (
+        BAFReader,
         IMZMLReader,
         NeoFlexReader,
+        RapiflexReader,
         SCiLSReader,
         TDFReader,
         TSFReader,

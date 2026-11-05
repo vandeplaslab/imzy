@@ -7,7 +7,16 @@ from koyo.system import IS_WIN
 from koyo.typing import PathLike
 
 from imzy._readers._base import BaseReader
-from imzy._readers.bruker import NeoFlexReader, TDFReader, TSFReader, is_neoflex, is_tdf, is_tsf
+from imzy._readers.bruker import (
+    BAFReader,
+    NeoFlexReader,
+    RapiflexReader,
+    TDFReader,
+    TSFReader,
+    is_neoflex,
+    is_tdf,
+    is_tsf,
+)
 from imzy._readers.imzml import IMZMLReader
 from imzy._readers.scils import SCiLSReader
 
@@ -18,9 +27,11 @@ else:
 
 
 __all__ = (
+    "BAFReader",
     "BaseReader",
     "IMZMLReader",
     "NeoFlexReader",
+    "RapiflexReader",
     "SCiLSReader",
     "TDFReader",
     "TSFReader",

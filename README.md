@@ -79,6 +79,8 @@ Ion extraction expects m/z arrays in ascending order.
 | --- | --- |
 | imzML (`.imzML`/`.ibd`) | Windows, macOS, Linux |
 | Bruker TSF/TDF/NeoFlex (`.d`) | Windows, Linux, macOS (with `pytsf`) |
+| Bruker BAF (`.d` with `analysis.baf` + `*peaks.sqlite`) | Windows, Linux |
+| Bruker rapifleX (folder with `.dat`, `_info.txt`, `_poslog.txt`) | Windows, macOS, Linux |
 | Waters MassLynx (`.raw`) | Windows |
 
 Bruker TDF ion mobility data can be read, but imzML export currently writes spectra collapsed to the m/z axis.
@@ -153,7 +155,7 @@ imzy convert path/to/input path/to/output \
   --overwrite
 ```
 
-Use `--roi` to export a specific Bruker TSF/TDF/NeoFlex region of interest:
+Use `--roi` to export a specific Bruker TSF/TDF/NeoFlex/BAF/rapifleX region of interest:
 
 ```bash
 imzy convert path/to/bruker.d path/to/output --roi 0

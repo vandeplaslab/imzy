@@ -237,12 +237,16 @@ class BrukerBaseReader(BaseReader):
             raise ValueError("Failed to extract experimental mass range from the file!")
         return mz_min, mz_max
 
+    def _get_frame_index_position(self) -> np.ndarray:
+        """Return (frame id, x index, y index, region number) array for every frame."""
+        from imzy._readers.bruker.utilities import get_coordinates_and_roi
+
+        return get_coordinates_and_roi(self.path, self.sql_filename)
+
     # noinspection PyAttributeOutsideInit
     def set_region_information(self, roi: int | None = None) -> None:
         """Collect file information."""
-        from imzy._readers.bruker.utilities import get_coordinates_and_roi
-
-        frame_index_position = get_coordinates_and_roi(self.path, self.sql_filename)
+        frame_index_position = self._get_frame_index_position()
 
         # get ROI
         self.region_number_all = frame_index_position[:, 3]

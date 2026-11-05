@@ -23,7 +23,7 @@ imzy convert sample.imzML normalized \
 | `--spectrum-type` | `auto` | `auto`, `centroid`, `profile` |
 | `--ibd-mode` | `auto` | `auto`, `continuous`, `processed` |
 | `--normalization NAME` | None | A name returned by Python's `imzy.get_normalizations()`; case-insensitive |
-| `--roi INTEGER` | None | Bruker TSF/TDF/NeoFlex ROI ID |
+| `--roi INTEGER` | None | Bruker TSF/TDF/NeoFlex/BAF/rapifleX ROI ID |
 | `--overwrite / --no-overwrite` | No overwrite | Replace existing output files when enabled |
 | `--on-error` | `error` | `error` stops conversion; `warn` skips unreadable/invalid spectra with warnings |
 | `--silent / --progress` | Progress | Hide or show progress bars |

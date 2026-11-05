@@ -27,6 +27,8 @@ TDFReader(
     pressure_compensation_strategy=PressureStrategy.NoCompensation, roi=None,
 )
 NeoFlexReader(path, use_recalibrated_state=False, auto_profile=True, resolution=30_000, roi=None)
+BAFReader(path, use_recalibrated_state=True, mode="profile", roi=None)
+RapiflexReader(path, roi=None)
 WatersReader(path, auto_profile=True, mz_ppm="auto", resolution="auto", enable_ion_mobility=True)
 ```
 
@@ -40,6 +42,9 @@ Bruker `roi=None` uses the reader's default region selection; an integer selects
 `use_recalibrated_state` requests the vendor recalibration state. TDF pressure compensation uses the
 `PressureStrategy` enum in `imzy._readers.bruker._tdf` and defaults to no compensation.
 Waters `enable_ion_mobility` defaults to enabled.
+BAF `mode` selects `"profile"` or `"centroid"` (line) spectra; on first use `baf2sql` writes the
+`analysis.sqlite` cache into the `.d` directory. rapifleX spectra share a linear m/z axis between the
+`Mass Start` and `Mass End` values of the `_info.txt` file.
 
 `IMZMLReader` supports `with ... as reader` and `close() -> None`. Its `backend` property reports
 `"python"` or `"rust"`. Closing prevents further reads; returned native arrays can retain the mapping.

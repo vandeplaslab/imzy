@@ -9,7 +9,7 @@ from koyo.typing import PathLike
 from pluggy import PluginManager
 
 from imzy import hookspec
-from imzy._readers.bruker import _neoflex, _tdf, _tsf
+from imzy._readers.bruker import HAS_BAF_BACKEND, _baf, _neoflex, _rapiflex, _tdf, _tsf
 from imzy._readers.imzml import _imzml
 from imzy._readers.scils import _scils
 
@@ -38,6 +38,9 @@ class ImzyPluginManager(PluginManager):
             self.register(_tsf)
         if _neoflex is not None:
             self.register(_neoflex)
+        self.register(_rapiflex)
+        if HAS_BAF_BACKEND:
+            self.register(_baf)
         if _raw is not None:
             self.register(_raw)
         # add entry hooks

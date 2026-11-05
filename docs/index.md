@@ -1,7 +1,7 @@
 # imzy
 
 Read, inspect, process, and export imaging mass spectrometry datasets from Python.
-imzy provides a common reader interface for imzML, Bruker TSF/TDF/NeoFlex, and Waters MassLynx data.
+imzy provides a common reader interface for imzML, Bruker TSF/TDF/NeoFlex/BAF/rapifleX, and Waters MassLynx data.
 
 ```bash
 pip install imzy

@@ -12,7 +12,7 @@ from imzy._normalizations._extract import get_normalizations
 from imzy._readers._base import BaseReader
 from imzy._writers._imzml import IBD_MODE_AUTO, ON_ERROR_ERROR, SPECTRUM_TYPE_AUTO, IbdMode, OnError, SpectrumType
 
-_BRUKER_ROI_READER_NAMES = {"NeoFlexReader", "TDFReader", "TSFReader"}
+_BRUKER_ROI_READER_NAMES = {"BAFReader", "NeoFlexReader", "RapiflexReader", "TDFReader", "TSFReader"}
 _BRUKER_TDF_READER_NAME = "TDFReader"
 _NORMALIZATIONS = get_normalizations()
 
@@ -39,7 +39,7 @@ def main() -> None:
     metavar="NAME",
     help="Normalization multiplier to apply by name. If not specified, no normalization is applied.",
 )
-@click.option("--roi", type=int, default=None, help="Bruker TSF/TDF region of interest to export.")
+@click.option("--roi", type=int, default=None, help="Bruker TSF/TDF/BAF/rapifleX region of interest to export.")
 @click.option(
     "--ibd-mode",
     type=click.Choice(["auto", "continuous", "processed"], case_sensitive=False),
@@ -71,7 +71,7 @@ def convert(
     reader = _get_reader(input_path, roi=roi)
     reader_name = reader.__class__.__name__
     if roi is not None and reader_name not in _BRUKER_ROI_READER_NAMES:
-        raise click.ClickException("--roi is only supported for Bruker TSF/TDF inputs.")
+        raise click.ClickException("--roi is only supported for Bruker TSF/TDF/BAF/rapifleX inputs.")
     if reader_name == _BRUKER_TDF_READER_NAME:
         click.echo(
             "Warning: Bruker TDF ion mobility is not exported; spectra will be squashed to the m/z axis only.",
@@ -106,5 +106,5 @@ def _get_reader(input_path: Path, *, roi: int | None) -> BaseReader:
     if close is not None:
         close()
     if reader_name not in _BRUKER_ROI_READER_NAMES:
-        raise click.ClickException("--roi is only supported for Bruker TSF/TDF inputs.")
+        raise click.ClickException("--roi is only supported for Bruker TSF/TDF/BAF/rapifleX inputs.")
     return imzy.get_reader(input_path, roi=roi)
