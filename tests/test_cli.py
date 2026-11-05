@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
-from koyo.system import IS_MAC
 
+from imzy._readers.bruker import HAS_BRUKER_BACKEND
 from imzy.cli import main
 
 _TEST_DATA = Path(__file__).parent / "_test_data"
@@ -103,7 +103,7 @@ def test_cli_passes_roi_to_bruker_reader(monkeypatch: pytest.MonkeyPatch, tmp_pa
     assert "ion mobility is not exported" in result.output
 
 
-@pytest.mark.skipif(IS_MAC, reason="Bruker reader is not supported on macOS.")
+@pytest.mark.skipif(not HAS_BRUKER_BACKEND, reason="Bruker reader requires `pytsf` on macOS.")
 def test_cli_converts_example_tsf_to_imzml(tmp_path: Path) -> None:
     """Convert the Bruker TSF test dataset through the CLI."""
     input_path = _copy_directory_dataset(_TEST_DATA / "example_tsf.d", tmp_path)
@@ -120,7 +120,7 @@ def test_cli_converts_example_tsf_to_imzml(tmp_path: Path) -> None:
     assert "ion mobility is not exported" not in result.output
 
 
-@pytest.mark.skipif(IS_MAC, reason="Bruker reader is not supported on macOS.")
+@pytest.mark.skipif(not HAS_BRUKER_BACKEND, reason="Bruker reader requires `pytsf` on macOS.")
 def test_cli_converts_example_tdf_to_imzml(tmp_path: Path) -> None:
     """Convert the Bruker TDF test dataset through the CLI."""
     input_path = _copy_directory_dataset(_TEST_DATA / "example_tdf.d", tmp_path)

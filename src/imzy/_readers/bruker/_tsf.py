@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import sqlite3
 import typing as ty
 from ctypes import (
     CDLL,
@@ -20,10 +19,11 @@ from ctypes import (
 from pathlib import Path
 
 import numpy as np
-from koyo.system import IS_LINUX, IS_MAC, IS_WIN
+from koyo.system import IS_LINUX, IS_WIN
 from koyo.typing import PathLike
 
 from imzy._readers.bruker._mixin import BrukerBaseReader
+from imzy._readers.bruker.utilities import is_tsf
 from imzy.hookspec import hook_impl
 
 _base_path = Path(__file__).parent.absolute()
@@ -123,6 +123,10 @@ class TSFReader(BrukerBaseReader):
                 self._is_centroid = True
         return self._is_centroid
 
+    def has_recalibrated_state(self) -> bool:
+        """Check whether the dataset has a recalibrated state."""
+        return bool(self.dll.tsf_has_recalibrated_state(self.handle))
+
     def _call_conversion_func(self, index: int, input_data: np.ndarray, func: ty.Callable) -> np.ndarray:
         success, out = self._call_conversion_func_base(index, input_data, func)
         if not success:
@@ -134,10 +138,20 @@ class TSFReader(BrukerBaseReader):
             return self.read_centroid_spectrum(index)
         return self.mz_x, self.read_profile_spectrum(index)
 
-    # Output: tuple of lists (m/zs, intensities)
     def read_centroid_spectrum(self, index: int) -> tuple[np.ndarray, np.ndarray]:
-        """Read centroid spectrum."""
-        frame_id = self._frame_id_for_index(index)
+        """Read centroid spectrum (m/zs, intensities) for a pixel index."""
+        return self.read_centroid_frame(self._frame_id_for_index(index))
+
+    def read_centroid_spectrum_with_width(self, index: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Read centroid spectrum (m/zs, intensities, widths) for a pixel index."""
+        return self.read_centroid_frame_with_width(self._frame_id_for_index(index))
+
+    def read_profile_spectrum(self, index: int) -> np.ndarray:
+        """Read profile spectrum (intensities) for a pixel index."""
+        return self.read_profile_frame(self._frame_id_for_index(index))
+
+    def read_centroid_frame(self, frame_id: int) -> tuple[np.ndarray, np.ndarray]:
+        """Read centroid spectrum (m/zs, intensities) for a raw Bruker frame id."""
         # buffer-growing loop
         while True:
             cnt = int(self.buffer_size_centroid)  # necessary cast to run with python 3.5
@@ -165,10 +179,8 @@ class TSFReader(BrukerBaseReader):
         mzs = self._call_conversion_func(frame_id, index_buf[0:required_len], self._dll_index_to_mz_func)
         return mzs[0:required_len], intensity_buf[0:required_len]
 
-    # Output: tuple of lists (indices, intensities, widths)
-    def read_centroid_spectrum_with_width(self, index: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Read centroid spectrum."""
-        frame_id = self._frame_id_for_index(index)
+    def read_centroid_frame_with_width(self, frame_id: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Read centroid spectrum (m/zs, intensities, widths) for a raw Bruker frame id."""
         # buffer-growing loop
         while True:
             cnt = int(self.buffer_size_centroid)  # necessary cast to run with python 3.5
@@ -198,10 +210,8 @@ class TSFReader(BrukerBaseReader):
         mzs = self._call_conversion_func(frame_id, index_buf[0:required_len], self._dll_index_to_mz_func)
         return mzs[0:required_len], intensity_buf[0:required_len], width_buf[0:required_len]
 
-    # Output: intensities
-    def read_profile_spectrum(self, index: int) -> np.ndarray:
-        """Read profile spectrum."""
-        frame_id = self._frame_id_for_index(index)
+    def read_profile_frame(self, frame_id: int) -> np.ndarray:
+        """Read profile spectrum (intensities) for a raw Bruker frame id."""
         # buffer-growing loop
         while True:
             cnt = int(self.buffer_size_profile)  # necessary cast to run with python 3.5
@@ -222,29 +232,6 @@ class TSFReader(BrukerBaseReader):
             else:
                 break
         return intensity_buf[0:required_len]
-
-
-def is_tsf(path: PathLike) -> bool:
-    """Check if path is Bruker .d/tsf."""
-    path = Path(path)
-    return (
-        path.suffix.lower() == ".d"
-        and path.is_dir()
-        and (path / "analysis.tsf").exists()
-        and (path / "analysis.tsf_bin").exists()
-        and not IS_MAC
-        and _is_timstof_instrument(path)
-    )
-
-
-def _is_timstof_instrument(path: Path) -> bool:
-    """Check if the instrument is neofleX."""
-    conn = sqlite3.connect(path / "analysis.tsf", check_same_thread=False)
-    cursor = conn.execute("SELECT Key, Value FROM GlobalMetadata WHERE Key='InstrumentName'")
-    key, value = cursor.fetchone()
-    is_neo = key == "InstrumentName" and "neoflex" not in value.lower()
-    conn.close()
-    return is_neo
 
 
 @hook_impl

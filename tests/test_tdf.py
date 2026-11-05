@@ -1,14 +1,14 @@
 """Tests for imzml files."""
 
 import pytest
-from koyo.system import IS_MAC
 
 from imzy import TDFReader, get_reader
+from imzy._readers.bruker import HAS_BRUKER_BACKEND
 
 from .utilities import get_tdf_data
 
 
-@pytest.mark.skipif(IS_MAC, reason="Bruker reader is not supported on macOS.")
+@pytest.mark.skipif(not HAS_BRUKER_BACKEND, reason="Bruker reader requires `pytsf` on macOS.")
 @pytest.mark.parametrize("path", get_tdf_data())
 def test_init(path):
     reader: TDFReader = get_reader(path)
@@ -64,7 +64,7 @@ def test_init(path):
     assert mz_x.shape == mz_y.shape
 
 
-@pytest.mark.skipif(IS_MAC, reason="Bruker reader is not supported on macOS.")
+@pytest.mark.skipif(not HAS_BRUKER_BACKEND, reason="Bruker reader requires `pytsf` on macOS.")
 @pytest.mark.parametrize("path", get_tdf_data())
 def test_to_zarr(path, tmp_path):
     pytest.importorskip("zarr")
@@ -77,7 +77,7 @@ def test_to_zarr(path, tmp_path):
     assert zarr_path.exists()
 
 
-@pytest.mark.skipif(IS_MAC, reason="Bruker reader is not supported on macOS.")
+@pytest.mark.skipif(not HAS_BRUKER_BACKEND, reason="Bruker reader requires `pytsf` on macOS.")
 @pytest.mark.parametrize("path", get_tdf_data())
 def test_to_h5(path, tmp_path):
     reader = TDFReader(path)
@@ -89,7 +89,7 @@ def test_to_h5(path, tmp_path):
     assert h5_temp != h5_path
 
 
-@pytest.mark.skipif(IS_MAC, reason="Bruker reader is not supported on macOS.")
+@pytest.mark.skipif(not HAS_BRUKER_BACKEND, reason="Bruker reader requires `pytsf` on macOS.")
 @pytest.mark.parametrize("path", get_tdf_data())
 def test_norms(path, tmp_path):
     reader = TDFReader(path)

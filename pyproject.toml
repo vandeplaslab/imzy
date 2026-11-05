@@ -34,7 +34,8 @@ audit-requires = ["abi3audit"]
 audit-command = 'python "{project}/scripts/audit_native_wheel.py" "{wheel}"'
 
 [tool.cibuildwheel.linux]
-manylinux-x86_64-image = "manylinux2014"
+# Bruker's vendored libbaf2sql_c.so needs GLIBCXX_3.4.21 / CXXABI_1.3.9, which manylinux2014 does not allow
+manylinux-x86_64-image = "manylinux_2_28"
 before-all = "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal"
 environment = { PATH = "$HOME/.cargo/bin:$PATH", IMZY_BUILD_RUST = "1", IMZY_REQUIRE_RUST = "1" }
 
@@ -131,6 +132,8 @@ test = [
     "imzy[all]",
     "pytest>=8.3.5",
     "pytest-cov>=6.1.1",
+    # macOS Bruker .d backend; kept out of [project] metadata until pytsf is on PyPI
+    "pytsf @ git+https://github.com/VU-MSRC/timsMac.git@main ; sys_platform == 'darwin'",
 ]
 docs = [
   "mkdocs>=1.6,<2",

@@ -25,6 +25,7 @@ class BrukerBaseReader(BaseReader):
     _mz_x: np.ndarray | None = None
     _rois: list[int] | None = None
     _pixel_size: float | None = None
+    _is_centroid: bool | None = None
 
     # DLL functions
     _dll_close_func: ty.Callable
@@ -92,19 +93,22 @@ class BrukerBaseReader(BaseReader):
 
         This method will throw an error if the pixel size is not equal in both dimensions.
         """
-        from imzy._readers.bruker.utilities import get_pixel_size
+        if self._pixel_size is None:
+            from imzy._readers.bruker.utilities import get_pixel_size
 
-        self._pixel_size = get_pixel_size(self.path, self.sql_filename)
+            self._pixel_size = get_pixel_size(self.path, self.sql_filename)
         return self._pixel_size
 
     @property
     def is_centroid(self) -> bool:
         """Flag to indicate whether the data is in centroid or profile mode."""
-        try:
-            self._read_spectrum(1)
-            return False
-        except RuntimeError:
-            return True
+        if self._is_centroid is None:
+            try:
+                self._read_spectrum(0)
+                self._is_centroid = False
+            except RuntimeError:
+                self._is_centroid = True
+        return self._is_centroid
 
     def get_summed_spectrum(
         self, indices: ty.Iterable[int], scales: np.ndarray | None = None, silent: bool = False
@@ -114,7 +118,8 @@ class BrukerBaseReader(BaseReader):
         if np.any(indices >= self.n_pixels):
             raise ValueError("You cannot specify indices that are greater than the total number of pixels.")
         if scales is None:
-            scales = np.ones(len(indices), dtype=np.float32)
+            # scales are indexed by pixel index (same as the other readers), not by position in `indices`
+            scales = np.ones(self.n_pixels, dtype=np.float32)
 
         mz_y = np.zeros_like(self.mz_x, dtype=np.float64)
         for index in tqdm(indices, disable=silent, total=len(indices), desc="Summing spectra..."):
@@ -149,8 +154,10 @@ class BrukerBaseReader(BaseReader):
     def sql_reader(self) -> ty.Generator[sqlite3.Connection, None, None]:
         """SQL reader context manager."""
         conn = sqlite3.connect(self.path / self.sql_filename)
-        yield conn
-        conn.close()
+        try:
+            yield conn
+        finally:
+            conn.close()
 
     def close(self) -> None:
         """Close file."""
@@ -230,12 +237,16 @@ class BrukerBaseReader(BaseReader):
             raise ValueError("Failed to extract experimental mass range from the file!")
         return mz_min, mz_max
 
+    def _get_frame_index_position(self) -> np.ndarray:
+        """Return (frame id, x index, y index, region number) array for every frame."""
+        from imzy._readers.bruker.utilities import get_coordinates_and_roi
+
+        return get_coordinates_and_roi(self.path, self.sql_filename)
+
     # noinspection PyAttributeOutsideInit
     def set_region_information(self, roi: int | None = None) -> None:
         """Collect file information."""
-        from imzy._readers.bruker.utilities import get_coordinates_and_roi
-
-        frame_index_position = get_coordinates_and_roi(self.path, self.sql_filename)
+        frame_index_position = self._get_frame_index_position()
 
         # get ROI
         self.region_number_all = frame_index_position[:, 3]

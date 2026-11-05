@@ -98,20 +98,22 @@ def write_cache(path: PathLike, filename: str, data: dict, cache_dir_name: str |
         cache_dir_name = ".icache"
 
     cache_dir_path = Path(path) / cache_dir_name
-    cache_dir_path.mkdir(exist_ok=True)
     tmp_filename = cache_dir_path / (filename + ".tmp.npz")
     filename = cache_dir_path / (filename + ".npz")
-    np.savez(tmp_filename, **data)
     try:
-        tmp_filename.rename(filename)
-    except OSError:
-        with suppress(FileNotFoundError):
-            filename.unlink()
-        tmp_filename.rename(filename)
-    except PermissionError:
-        logger.warning("Could not write cache file.")
+        cache_dir_path.mkdir(exist_ok=True)
+        np.savez(tmp_filename, **data)
+        try:
+            tmp_filename.rename(filename)
+        except OSError:
+            with suppress(FileNotFoundError):
+                filename.unlink()
+            tmp_filename.rename(filename)
+    except OSError as exc:
+        # e.g. read-only dataset location - caching is an optimisation, so carry on without it
+        logger.warning(f"Could not write cache file '{filename}' ({exc}).")
     finally:
-        with suppress(FileNotFoundError):
+        with suppress(OSError):
             tmp_filename.unlink()
 
 
