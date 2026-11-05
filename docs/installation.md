@@ -33,6 +33,7 @@ extras omit Zarr. You can combine extras, for example `pip install "imzy[hdf5,pl
 | Waters MassLynx (`.raw`) | Yes | No | No |
 
 Vendor formats depend on their native SDKs. Use imzML for the portable examples.
+Linux wheels target `manylinux_2_28` (glibc 2.28 or newer), because the bundled Bruker BAF library needs it.
 Keep the imzML XML and binary `.ibd` file together. Bruker TDF export collapses ion mobility onto the m/z axis.
 
 ## Installing from source
