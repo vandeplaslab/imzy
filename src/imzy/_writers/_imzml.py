@@ -6,11 +6,13 @@ import hashlib
 import typing as ty
 import uuid
 import warnings
+from array import array
 from contextlib import nullcontext, suppress
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from xml.etree import ElementTree as ET
+from xml.sax.saxutils import escape
 
 import numpy as np
 from koyo.typing import PathLike
@@ -85,15 +87,58 @@ class _Spectrum:
     user_params: tuple[UserParam, ...]
 
 
-@dataclass(frozen=True)
-class _WriterState:
-    """Mutable writer state before a spectrum write."""
+# Per-spectrum metadata is kept in flat typed arrays to keep memory low for large exports.
+# Integer columns: x, y, z, mz offset, mz length, mz encoded length, intensity offset,
+# intensity length, intensity encoded length.
+_N_INT_COLUMNS = 9
+# Float columns: mz min, mz max, base peak m/z, base peak intensity, TIC.
+_N_FLOAT_COLUMNS = 5
+# Number of spectra rendered per write when streaming the spectrum list.
+_XML_CHUNK_SIZE = 4096
+_ATTR_ENTITIES = {'"': "&quot;", "\n": "&#10;", "\r": "&#13;", "\t": "&#09;"}
+_XML_DECLARATION = "<?xml version='1.0' encoding='ISO-8859-1'?>\n"
 
-    ibd_position: int
-    sha1: ty.Any
-    first_mz: _ExternalArray | None
-    mz_cache: dict[tuple[tuple[int, ...], bytes], _ExternalArray]
-    n_spectra: int
+# Matches the layout produced by ``ET.indent(tree, space="  ")`` for one spectrum.
+_SPECTRUM_TEMPLATE = """\
+      <spectrum defaultArrayLength="0" id="spectrum={index}" index="{index}">
+        <referenceableParamGroupRef ref="spectrum1" />
+        <cvParam cvRef="MS" accession="MS:1000528" name="lowest observed m/z" value="{mz_min:.12g}" \
+unitCvRef="MS" unitAccession="MS:1000040" unitName="m/z" />
+        <cvParam cvRef="MS" accession="MS:1000527" name="highest observed m/z" value="{mz_max:.12g}" \
+unitCvRef="MS" unitAccession="MS:1000040" unitName="m/z" />
+        <cvParam cvRef="MS" accession="MS:1000504" name="base peak m/z" value="{mz_base:.12g}" \
+unitCvRef="MS" unitAccession="MS:1000040" unitName="m/z" />
+        <cvParam cvRef="MS" accession="MS:1000505" name="base peak intensity" value="{int_base:.12g}" \
+unitCvRef="MS" unitAccession="MS:1000131" unitName="number of detector counts" />
+        <cvParam cvRef="MS" accession="MS:1000285" name="total ion current" value="{tic:.12g}" />
+        <scanList count="1">
+          <cvParam cvRef="MS" accession="MS:1000795" name="no combination" />
+          <scan instrumentConfigurationRef="IC1">
+            <referenceableParamGroupRef ref="scan1" />
+            <cvParam cvRef="IMS" accession="IMS:1000050" name="position x" value="{x}" />
+            <cvParam cvRef="IMS" accession="IMS:1000051" name="position y" value="{y}" />
+            <cvParam cvRef="IMS" accession="IMS:1000052" name="position z" value="{z}" />
+{user_params}          </scan>
+        </scanList>
+        <binaryDataArrayList count="2">
+          <binaryDataArray encodedLength="0">
+            <referenceableParamGroupRef ref="mzArray" />
+            <cvParam cvRef="IMS" accession="IMS:1000103" name="external array length" value="{mz_length}" />
+            <cvParam cvRef="IMS" accession="IMS:1000104" name="external encoded length" value="{mz_encoded}" />
+            <cvParam cvRef="IMS" accession="IMS:1000102" name="external offset" value="{mz_offset}" />
+            <binary />
+          </binaryDataArray>
+          <binaryDataArray encodedLength="0">
+            <referenceableParamGroupRef ref="intensityArray" />
+            <cvParam cvRef="IMS" accession="IMS:1000103" name="external array length" value="{int_length}" />
+            <cvParam cvRef="IMS" accession="IMS:1000104" name="external encoded length" value="{int_encoded}" />
+            <cvParam cvRef="IMS" accession="IMS:1000102" name="external offset" value="{int_offset}" />
+            <binary />
+          </binaryDataArray>
+        </binaryDataArrayList>
+      </spectrum>
+"""
+_USER_PARAM_TEMPLATE = '            <userParam name="{name}" value="{value}" />\n'
 
 
 class _EmptySpectrumError(ValueError):
@@ -153,17 +198,46 @@ class IMZMLWriter:
         self.temp_imzml_path, self.temp_ibd_path = _resolve_temp_output_paths(self.imzml_path, self.ibd_path)
         self.sha1 = hashlib.sha1()
         self._closed = False
-        self._spectra: list[_Spectrum] = []
+        self._n_spectra = 0
+        self._int_columns = array("q")
+        self._float_columns = array("d")
+        self._user_params: dict[int, tuple[UserParam, ...]] = {}
         self._first_mz: _ExternalArray | None = None
+        self._first_mz_array: np.ndarray | None = None
         self._mz_cache: dict[tuple[tuple[int, ...], bytes], _ExternalArray] = {}
 
-        self._ibd = self.temp_ibd_path.open("wb+")
+        self._ibd_position = 0
+        self._ibd = self.temp_ibd_path.open("wb")
         self._write_ibd(self.uuid.bytes)
 
     @property
     def spectra(self) -> tuple[_Spectrum, ...]:
         """Return metadata for spectra added to the writer."""
-        return tuple(self._spectra)
+        ints, floats = self._metadata_arrays()
+        spectra = []
+        for index, (int_row, float_row) in enumerate(zip(ints.tolist(), floats.tolist(), strict=True)):
+            x, y, z, mz_offset, mz_length, mz_encoded, int_offset, int_length, int_encoded = int_row
+            mz_min, mz_max, mz_base, intensity_base, intensity_tic = float_row
+            spectra.append(
+                _Spectrum(
+                    coords=(x, y, z),
+                    mz=_ExternalArray(offset=mz_offset, length=mz_length, encoded_length=mz_encoded),
+                    intensity=_ExternalArray(offset=int_offset, length=int_length, encoded_length=int_encoded),
+                    mz_min=mz_min,
+                    mz_max=mz_max,
+                    mz_base=mz_base,
+                    intensity_base=intensity_base,
+                    intensity_tic=intensity_tic,
+                    user_params=self._user_params.get(index, ()),
+                )
+            )
+        return tuple(spectra)
+
+    def _metadata_arrays(self) -> tuple[np.ndarray, np.ndarray]:
+        """Return per-spectrum integer and float metadata as 2D arrays."""
+        ints = np.frombuffer(self._int_columns, dtype=np.int64).reshape(-1, _N_INT_COLUMNS)
+        floats = np.frombuffer(self._float_columns, dtype=np.float64).reshape(-1, _N_FLOAT_COLUMNS)
+        return ints, floats
 
     @classmethod
     def from_reader(
@@ -264,62 +338,95 @@ class IMZMLWriter:
         if self._closed:
             raise ValueError("Cannot add spectra after the writer has been closed.")
 
-        state = self._capture_state()
+        # All validation happens before anything is written, so a rejected spectrum leaves no trace.
         try:
-            self._add_spectrum_checked(mzs, intensities, coords, user_params=user_params)
+            mz_array, intensity_array, normalized_coords, params = self._validate_spectrum(
+                mzs, intensities, coords, user_params
+            )
         except Exception as error:
-            self._restore_state(state)
-            if isinstance(error, _EmptySpectrumError):
-                self._warn_skipped_spectrum(error, context=error_context)
-                return False
-            if self.on_error == ON_ERROR_WARN:
+            if isinstance(error, _EmptySpectrumError) or self.on_error == ON_ERROR_WARN:
                 self._warn_skipped_spectrum(error, context=error_context)
                 return False
             self._cleanup_outputs()
             raise
+        # Failures while writing (e.g. disk full) leave the ibd file inconsistent, so they are always fatal.
+        try:
+            self._write_spectrum(mz_array, intensity_array, normalized_coords, params)
+        except Exception:
+            self._cleanup_outputs()
+            raise
         return True
 
-    def _add_spectrum_checked(
+    def _validate_spectrum(
         self,
         mzs: ty.Iterable[float],
         intensities: ty.Iterable[float],
         coords: ty.Sequence[int | float],
-        *,
-        user_params: ty.Iterable[UserParam] | None = None,
-    ) -> None:
-        """Add one validated spectrum to the output files."""
-        mz_array = np.asarray(mzs, dtype=self.mz_dtype)
-        intensity_array = np.asarray(intensities, dtype=self.intensity_dtype)
+        user_params: ty.Iterable[UserParam] | None,
+    ) -> tuple[np.ndarray, np.ndarray, tuple[int, int, int], tuple[UserParam, ...]]:
+        """Convert and validate one spectrum without touching the output files."""
+        mz_array = np.ascontiguousarray(mzs, dtype=self.mz_dtype)
+        intensity_array = np.ascontiguousarray(intensities, dtype=self.intensity_dtype)
         if mz_array.ndim != 1 or intensity_array.ndim != 1:
             raise ValueError("m/z and intensity arrays must be one-dimensional.")
         if mz_array.shape != intensity_array.shape:
             raise ValueError("m/z and intensity arrays must have the same shape.")
         if mz_array.size == 0:
             raise _EmptySpectrumError("Spectrum has no m/z peaks.")
+        if (
+            self.ibd_mode == IBD_MODE_CONTINUOUS
+            and self._first_mz_array is not None
+            and not np.array_equal(self._first_mz_array, mz_array)
+        ):
+            raise ValueError("Continuous imzML output requires every m/z array to be identical.")
+        normalized_coords = self._normalize_coordinates(coords)
+        params = tuple(user_params or ())
+        for param in params:
+            if "name" not in param or "value" not in param:
+                raise ValueError("user_params entries must contain 'name' and 'value'.")
+        return mz_array, intensity_array, normalized_coords, params
 
+    def _write_spectrum(
+        self,
+        mz_array: np.ndarray,
+        intensity_array: np.ndarray,
+        coords: tuple[int, int, int],
+        user_params: tuple[UserParam, ...],
+    ) -> None:
+        """Write one validated spectrum to the ibd file and record its metadata."""
         mz_location = self._get_mz_location(mz_array)
-        intensity_location = self._encode_and_write(intensity_array, self.intensity_dtype)
-        base_index = int(np.argmax(intensity_array))
-        self._spectra.append(
-            _Spectrum(
-                coords=self._normalize_coordinates(coords),
-                mz=mz_location,
-                intensity=intensity_location,
-                mz_min=float(np.min(mz_array)),
-                mz_max=float(np.max(mz_array)),
-                mz_base=float(mz_array[base_index]),
-                intensity_base=float(intensity_array[base_index]),
-                intensity_tic=float(np.sum(intensity_array)),
-                user_params=tuple(user_params or ()),
+        intensity_location = self._encode_and_write(intensity_array)
+        base_index = int(intensity_array.argmax())
+        self._int_columns.extend(
+            (
+                *coords,
+                mz_location.offset,
+                mz_location.length,
+                mz_location.encoded_length,
+                intensity_location.offset,
+                intensity_location.length,
+                intensity_location.encoded_length,
             )
         )
+        self._float_columns.extend(
+            (
+                float(mz_array.min()),
+                float(mz_array.max()),
+                float(mz_array[base_index]),
+                float(intensity_array[base_index]),
+                float(intensity_array.sum()),
+            )
+        )
+        if user_params:
+            self._user_params[self._n_spectra] = user_params
+        self._n_spectra += 1
 
     def close(self) -> None:
         """Write the imzML file and close the writer."""
         if self._closed:
             return
         try:
-            if not self._spectra:
+            if not self._n_spectra:
                 raise ValueError("Cannot write imzML output without any spectra.")
             self._ibd.close()
             self._write_xml()
@@ -344,24 +451,6 @@ class IMZMLWriter:
             self.close()
         else:
             self._cleanup_outputs()
-
-    def _capture_state(self) -> _WriterState:
-        self._ibd.flush()
-        return _WriterState(
-            ibd_position=self._ibd.tell(),
-            sha1=self.sha1.copy(),
-            first_mz=self._first_mz,
-            mz_cache=self._mz_cache.copy(),
-            n_spectra=len(self._spectra),
-        )
-
-    def _restore_state(self, state: _WriterState) -> None:
-        self._ibd.seek(state.ibd_position)
-        self._ibd.truncate(state.ibd_position)
-        self.sha1 = state.sha1.copy()
-        self._first_mz = state.first_mz
-        self._mz_cache = state.mz_cache.copy()
-        del self._spectra[state.n_spectra :]
 
     def _cleanup_outputs(self) -> None:
         ibd = getattr(self, "_ibd", None)
@@ -418,27 +507,20 @@ class IMZMLWriter:
 
     def _get_mz_location(self, mz_array: np.ndarray) -> _ExternalArray:
         if self.ibd_mode == IBD_MODE_CONTINUOUS:
+            # Identity with the first m/z array is checked in ``_validate_spectrum``.
             if self._first_mz is None:
-                self._first_mz = self._encode_and_write(mz_array, self.mz_dtype)
-            elif not self._same_external_mz(self._first_mz, mz_array):
-                raise ValueError("Continuous imzML output requires every m/z array to be identical.")
+                self._first_mz = self._encode_and_write(mz_array)
+                self._first_mz_array = mz_array.copy()
             return self._first_mz
         if self.ibd_mode == IBD_MODE_PROCESSED:
-            return self._encode_and_write(mz_array, self.mz_dtype)
+            return self._encode_and_write(mz_array)
 
         key = (mz_array.shape, mz_array.tobytes())
         mz_location = self._mz_cache.get(key)
         if mz_location is None:
-            mz_location = self._encode_and_write(mz_array, self.mz_dtype)
+            mz_location = self._encode_and_write(mz_array)
             self._mz_cache[key] = mz_location
         return mz_location
-
-    def _same_external_mz(self, location: _ExternalArray, mz_array: np.ndarray) -> bool:
-        self._ibd.flush()
-        self._ibd.seek(location.offset)
-        existing = np.frombuffer(self._ibd.read(location.encoded_length), dtype=self.mz_dtype)
-        self._ibd.seek(0, 2)
-        return np.array_equal(existing, mz_array)
 
     def _normalize_coordinates(self, coords: ty.Sequence[int | float]) -> tuple[int, int, int]:
         if len(coords) not in {2, 3}:
@@ -450,17 +532,19 @@ class IMZMLWriter:
             normalized.append(1)
         return normalized[0], normalized[1], normalized[2]
 
-    def _encode_and_write(self, data: np.ndarray, dtype: np.dtype) -> _ExternalArray:
-        array = np.asarray(data, dtype=dtype)
-        offset = self._ibd.tell()
-        data_bytes = array.tobytes()
-        encoded_length = self._write_ibd(data_bytes)
+    def _encode_and_write(self, array: np.ndarray) -> _ExternalArray:
+        """Append a contiguous, already typed array to the ibd file."""
+        offset = self._ibd_position
+        encoded_length = self._write_ibd(array)
         return _ExternalArray(offset=offset, length=int(array.shape[0]), encoded_length=encoded_length)
 
-    def _write_ibd(self, data: bytes) -> int:
-        self._ibd.write(data)
-        self.sha1.update(data)
-        return len(data)
+    def _write_ibd(self, data: bytes | np.ndarray) -> int:
+        """Append raw bytes (or a contiguous array, without copying) to the ibd file and hash."""
+        view = memoryview(data).cast("B")
+        self._ibd.write(view)
+        self.sha1.update(view)
+        self._ibd_position += view.nbytes
+        return view.nbytes
 
     def _write_xml(self) -> None:
         ET.register_namespace("", MZML_NAMESPACE)
@@ -481,11 +565,62 @@ class IMZMLWriter:
         self._add_scan_settings(root)
         self._add_instrument_configuration(root)
         self._add_data_processing(root)
-        self._add_run(root)
+        # The run is a placeholder; spectra are streamed in its place to avoid building a huge tree.
+        placeholder = f"imzy-spectra-{uuid.uuid4().hex}"
+        self._add_run(root, placeholder)
 
         tree = ET.ElementTree(root)
         ET.indent(tree, space="  ")
-        tree.write(self.temp_imzml_path, encoding="ISO-8859-1", xml_declaration=True)
+        prefix, marker, suffix = ET.tostring(root, encoding="unicode").rpartition(f"<!--{placeholder}-->")
+        if not marker:
+            raise RuntimeError("Failed to locate the spectrum list placeholder in the imzML header.")
+        with self.temp_imzml_path.open("w", encoding="ISO-8859-1", errors="xmlcharrefreplace", newline="\n") as file:
+            file.write(_XML_DECLARATION)
+            file.write(prefix.rstrip(" "))
+            self._write_spectrum_list(file)
+            file.write(suffix.lstrip("\n"))
+
+    def _write_spectrum_list(self, file: ty.TextIO) -> None:
+        """Stream ``<spectrum>`` elements in chunks, matching the indented ElementTree output."""
+        ints, floats = self._metadata_arrays()
+        for start in range(0, self._n_spectra, _XML_CHUNK_SIZE):
+            stop = min(start + _XML_CHUNK_SIZE, self._n_spectra)
+            chunk = []
+            rows = zip(ints[start:stop].tolist(), floats[start:stop].tolist(), strict=True)
+            for index, (int_row, float_row) in enumerate(rows, start=start):
+                x, y, z, mz_offset, mz_length, mz_encoded, int_offset, int_length, int_encoded = int_row
+                mz_min, mz_max, mz_base, int_base, tic = float_row
+                chunk.append(
+                    _SPECTRUM_TEMPLATE.format(
+                        index=index + 1,
+                        mz_min=mz_min,
+                        mz_max=mz_max,
+                        mz_base=mz_base,
+                        int_base=int_base,
+                        tic=tic,
+                        x=x,
+                        y=y,
+                        z=z,
+                        user_params=self._format_user_params(index),
+                        mz_length=mz_length,
+                        mz_encoded=mz_encoded,
+                        mz_offset=mz_offset,
+                        int_length=int_length,
+                        int_encoded=int_encoded,
+                        int_offset=int_offset,
+                    )
+                )
+            file.write("".join(chunk))
+
+    def _format_user_params(self, index: int) -> str:
+        """Render the ``<userParam>`` lines of one spectrum."""
+        params = self._user_params.get(index)
+        if not params:
+            return ""
+        return "".join(
+            _USER_PARAM_TEMPLATE.format(name=_escape_attr(param["name"]), value=_escape_attr(param["value"]))
+            for param in params
+        )
 
     def _add_cv_list(self, root: ET.Element) -> None:
         cv_list = _sub(root, "cvList", count="3")
@@ -615,93 +750,15 @@ class IMZMLWriter:
         _cv(method, "MS", "MS:1000530", "file format conversion", value="Output to imzML")
         _sub(method, "userParam", name="imzy export timestamp", value=self.export_timestamp)
 
-    def _add_run(self, root: ET.Element) -> None:
+    def _add_run(self, root: ET.Element, placeholder: str) -> None:
         run = _sub(root, "run", defaultInstrumentConfigurationRef="IC1", id=self.run_id)
         spectrum_list = _sub(
             run,
             "spectrumList",
-            count=str(len(self._spectra)),
+            count=str(self._n_spectra),
             defaultDataProcessingRef="export_from_imzy",
         )
-        for index, spectrum in enumerate(self._spectra, start=1):
-            self._add_spectrum(spectrum_list, index, spectrum)
-
-    def _add_spectrum(self, spectrum_list: ET.Element, index: int, spectrum: _Spectrum) -> None:
-        element = _sub(spectrum_list, "spectrum", defaultArrayLength="0", id=f"spectrum={index}", index=str(index))
-        _sub(element, "referenceableParamGroupRef", ref="spectrum1")
-        _cv(
-            element,
-            "MS",
-            "MS:1000528",
-            "lowest observed m/z",
-            value=_format_float(spectrum.mz_min),
-            unitCvRef="MS",
-            unitAccession="MS:1000040",
-            unitName="m/z",
-        )
-        _cv(
-            element,
-            "MS",
-            "MS:1000527",
-            "highest observed m/z",
-            value=_format_float(spectrum.mz_max),
-            unitCvRef="MS",
-            unitAccession="MS:1000040",
-            unitName="m/z",
-        )
-        _cv(
-            element,
-            "MS",
-            "MS:1000504",
-            "base peak m/z",
-            value=_format_float(spectrum.mz_base),
-            unitCvRef="MS",
-            unitAccession="MS:1000040",
-            unitName="m/z",
-        )
-        _cv(
-            element,
-            "MS",
-            "MS:1000505",
-            "base peak intensity",
-            value=_format_float(spectrum.intensity_base),
-            unitCvRef="MS",
-            unitAccession="MS:1000131",
-            unitName="number of detector counts",
-        )
-        _cv(element, "MS", "MS:1000285", "total ion current", value=_format_float(spectrum.intensity_tic))
-        self._add_scan_list(element, spectrum)
-        self._add_binary_arrays(element, spectrum)
-
-    def _add_scan_list(self, spectrum_element: ET.Element, spectrum: _Spectrum) -> None:
-        scan_list = _sub(spectrum_element, "scanList", count="1")
-        _cv(scan_list, "MS", "MS:1000795", "no combination")
-        scan = _sub(scan_list, "scan", instrumentConfigurationRef="IC1")
-        _sub(scan, "referenceableParamGroupRef", ref="scan1")
-        x, y, z = spectrum.coords
-        _cv(scan, "IMS", "IMS:1000050", "position x", value=str(x))
-        _cv(scan, "IMS", "IMS:1000051", "position y", value=str(y))
-        _cv(scan, "IMS", "IMS:1000052", "position z", value=str(z))
-        for user_param in spectrum.user_params:
-            _sub(
-                scan,
-                "userParam",
-                name=str(user_param["name"]),
-                value=str(user_param["value"]),
-            )
-
-    def _add_binary_arrays(self, spectrum_element: ET.Element, spectrum: _Spectrum) -> None:
-        arrays = _sub(spectrum_element, "binaryDataArrayList", count="2")
-        self._add_binary_array(arrays, "mzArray", spectrum.mz)
-        self._add_binary_array(arrays, "intensityArray", spectrum.intensity)
-
-    def _add_binary_array(self, arrays: ET.Element, reference: str, location: _ExternalArray) -> None:
-        binary_array = _sub(arrays, "binaryDataArray", encodedLength="0")
-        _sub(binary_array, "referenceableParamGroupRef", ref=reference)
-        _cv(binary_array, "IMS", "IMS:1000103", "external array length", value=str(location.length))
-        _cv(binary_array, "IMS", "IMS:1000104", "external encoded length", value=str(location.encoded_length))
-        _cv(binary_array, "IMS", "IMS:1000102", "external offset", value=str(location.offset))
-        _sub(binary_array, "binary")
+        spectrum_list.append(ET.Comment(placeholder))
 
     @property
     def resolved_ibd_mode(self) -> str:
@@ -709,9 +766,10 @@ class IMZMLWriter:
         return self.ibd_mode
 
     def _max_coordinate(self, index: int) -> int:
-        if not self._spectra:
+        if not self._n_spectra:
             return 0
-        return max(spectrum.coords[index] for spectrum in self._spectra)
+        ints, _ = self._metadata_arrays()
+        return int(ints[:, index].max())
 
     def _image_dimensions(self) -> tuple[int, int]:
         if self.image_shape is not None:
@@ -931,3 +989,8 @@ def _cv(parent: ET.Element, cv_ref: str, accession: str, name: str, **attrs: str
 
 def _format_float(value: float) -> str:
     return f"{value:.12g}"
+
+
+def _escape_attr(value: UserParamValue) -> str:
+    """Escape a value for use in a double-quoted XML attribute, like ElementTree does."""
+    return escape(str(value), _ATTR_ENTITIES)

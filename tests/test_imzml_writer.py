@@ -531,3 +531,63 @@ def test_write_imzml_rejects_unknown_normalization(tmp_path: Path) -> None:
         write_imzml(reader, tmp_path / "bad_normalization", normalization="missing", silent=True)
     assert not (tmp_path / "bad_normalization.imzML").exists()
     assert not (tmp_path / "bad_normalization.ibd").exists()
+
+
+def test_user_params_are_escaped(tmp_path: Path) -> None:
+    """Write user params with XML special and non-Latin-1 characters that parse back unchanged."""
+    name = "a&b<c>\"d'\n\tµ ☃"
+    with IMZMLWriter(tmp_path / "params") as writer:
+        writer.add_spectrum([100.0], [1.0], (1, 1), user_params=[{"name": name, "value": 3.5}])
+        writer.add_spectrum([101.0], [2.0], (2, 1))
+
+    root = ET.parse(tmp_path / "params.imzML").getroot()
+    params = root.findall(".//mzml:scan/mzml:userParam", _MZML_NS)
+    assert [(param.attrib["name"], param.attrib["value"]) for param in params] == [(name, "3.5")]
+
+
+def test_invalid_user_params_are_rejected(tmp_path: Path) -> None:
+    """Reject user params without name/value before anything is written."""
+    with IMZMLWriter(tmp_path / "bad_params", on_error="warn") as writer:
+        with pytest.warns(SkippedSpectrumWarning, match="user_params"):
+            assert writer.add_spectrum([100.0], [1.0], (1, 1), user_params=[{"name": "x"}]) is False
+        assert writer.add_spectrum([101.0], [2.0], (2, 1)) is True
+    assert len(writer.spectra) == 1
+
+
+def test_skipped_spectra_keep_ibd_consistent(tmp_path: Path) -> None:
+    """Keep ibd contents and its SHA-1 consistent when invalid spectra are skipped mid-stream."""
+    import hashlib
+
+    mzs = np.asarray([100.0, 101.0, 102.0])
+    with IMZMLWriter(tmp_path / "skips", ibd_mode="continuous", on_error="warn") as writer:
+        writer.add_spectrum(mzs, [1.0, 2.0, 3.0], (1, 1))
+        with pytest.warns(SkippedSpectrumWarning, match="identical"):
+            assert writer.add_spectrum([100.0, 101.0, 103.0], [4.0, 5.0, 6.0], (2, 1)) is False
+        with pytest.warns(SkippedSpectrumWarning, match="same shape"):
+            assert writer.add_spectrum(mzs, [1.0], (2, 1)) is False
+        writer.add_spectrum(mzs, [7.0, 8.0, 9.0], (2, 1))
+
+    ibd = (tmp_path / "skips.ibd").read_bytes()
+    assert _cv_value(tmp_path / "skips.imzML", "IMS:1000091") == hashlib.sha1(ibd).hexdigest().upper()
+    # uuid + one shared m/z array + two intensity arrays
+    assert len(ibd) == 16 + 3 * 8 + 2 * 3 * 4
+    reader = IMZMLReader(tmp_path / "skips.imzML", parse_lib="ElementTree")
+    np.testing.assert_array_equal(reader.get_tic(silent=True), np.asarray([6.0, 24.0]))
+
+
+def test_spectrum_list_streams_across_chunks(tmp_path: Path) -> None:
+    """Write more spectra than one XML chunk and read every one back."""
+    from imzy._writers._imzml import _XML_CHUNK_SIZE
+
+    n_spectra = _XML_CHUNK_SIZE + 3
+    width = 100
+    with IMZMLWriter(tmp_path / "chunks") as writer:
+        for index in range(n_spectra):
+            writer.add_spectrum([100.0 + index, 200.0], [float(index), 1.0], (index % width + 1, index // width + 1))
+
+    reader = IMZMLReader(tmp_path / "chunks.imzML", parse_lib="ElementTree")
+    assert reader.n_pixels == n_spectra
+    np.testing.assert_array_equal(reader.get_tic(silent=True), np.arange(n_spectra) + 1.0)
+    for index in (0, _XML_CHUNK_SIZE - 1, _XML_CHUNK_SIZE, n_spectra - 1):
+        np.testing.assert_array_equal(reader.get_spectrum(index)[0], [100.0 + index, 200.0])
+        np.testing.assert_array_equal(reader.xyz_coordinates[index], [index % width + 1, index // width + 1, 1])
