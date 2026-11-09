@@ -95,9 +95,9 @@ dependencies = [
   "tqdm",
   "natsort",
   "pluggy",
-  "koyo>=0.3.5",
-  "ims-utils>=0.1.10",
-  "yoki5",
+  "koyo>=0.3.6",
+  "ims-utils>=0.2.0",
+  "yoki5>=0.1.3",
 ]
 
 [project.scripts]
@@ -111,7 +111,7 @@ zarr = [
     "zarr>3,<4; python_version >= '3.11'",
     "dask; python_version >= '3.11'",
 ]
-hdf5 = ["yoki5", "h5py", "hdf5plugin"]
+hdf5 = ["h5py", "hdf5plugin"]
 all = ["imzy[hdf5]", "imzy[zarr]", "imzy[plot]"]
 test = [
     "imzy[all]",
