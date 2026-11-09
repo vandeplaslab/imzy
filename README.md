@@ -191,7 +191,9 @@ Use `write_imzml` for reader-to-reader conversion, or `IMZMLWriter` when you nee
 ```python
 from imzy import IMZMLWriter
 
-with IMZMLWriter("manual_export", spectrum_type="centroid", ibd_mode="processed") as writer:
+with IMZMLWriter(
+    "manual_export", pixel_size=(50.0, 50.0), spectrum_type="centroid", ibd_mode="processed"
+) as writer:
     writer.add_spectrum([100.0, 101.0], [10.0, 50.0], (1, 1))
     writer.add_spectrum([100.0, 101.0], [20.0, 30.0], (2, 1))
 ```
@@ -221,11 +223,11 @@ class YourReader(BaseReader):
 
 
 @hook_impl
-def imzy_reader(path: PathLike, **kwargs: ty.Any) -> BaseReader | None:
+def imzy_reader(path: PathLike, reader_kwargs: dict[str, ty.Any]) -> BaseReader | None:
     """Return a reader when path points to a supported dataset."""
     if Path(path).suffix != ".yourformat":
         return None
-    return YourReader(path, **kwargs)
+    return YourReader(path, **reader_kwargs)
 ```
 
 Then expose the module from your package metadata:

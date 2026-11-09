@@ -9,7 +9,9 @@ the writer refuses to overwrite existing files by default.
 ```python
 from imzy import IMZMLWriter
 
-with IMZMLWriter("sample", spectrum_type="centroid", ibd_mode="processed") as writer:
+with IMZMLWriter(
+    "sample", pixel_size=(50.0, 50.0), spectrum_type="centroid", ibd_mode="processed"
+) as writer:
     writer.add_spectrum([100.0, 200.0, 300.0], [1.0, 2.0, 3.0], (1, 1))
     writer.add_spectrum([100.0, 200.0, 300.0], [2.0, 4.0, 6.0], (2, 1))
     writer.add_spectrum([100.0, 200.0, 300.0], [3.0, 6.0, 9.0], (1, 2))

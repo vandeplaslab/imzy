@@ -33,7 +33,9 @@ centroid data; it does not recover a measured profile spectrum.
 ```python
 from imzy import IMZMLWriter
 
-with IMZMLWriter("manual", spectrum_type="centroid", ibd_mode="processed") as writer:
+with IMZMLWriter(
+    "manual", pixel_size=(50.0, 50.0), spectrum_type="centroid", ibd_mode="processed"
+) as writer:
     writer.add_spectrum([100.0, 101.0], [10.0, 50.0], (1, 1))
     writer.add_spectrum([100.0, 102.0], [20.0, 30.0], (2, 1))
 ```

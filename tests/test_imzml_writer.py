@@ -139,7 +139,9 @@ def test_manual_centroid_processed_roundtrip(tmp_path: Path) -> None:
     mzs_2 = np.asarray([200.0, 201.0], dtype=np.float64)
     ints_2 = np.asarray([3.0, 7.0], dtype=np.float32)
 
-    with IMZMLWriter(tmp_path / "manual", ibd_mode="processed", spectrum_type="centroid") as writer:
+    with IMZMLWriter(
+        tmp_path / "manual", pixel_size=(1.0, 1.0), ibd_mode="processed", spectrum_type="centroid"
+    ) as writer:
         writer.add_spectrum(mzs_1, ints_1, (1, 1, 1))
         writer.add_spectrum(mzs_2, ints_2, (2, 1, 1))
 
@@ -157,7 +159,9 @@ def test_manual_centroid_processed_roundtrip(tmp_path: Path) -> None:
 def test_profile_continuous_roundtrip(tmp_path: Path) -> None:
     """Write profile spectra with one shared m/z axis."""
     mzs = np.asarray([100.0, 101.0, 102.0], dtype=np.float64)
-    with IMZMLWriter(tmp_path / "profile", ibd_mode="continuous", spectrum_type="profile") as writer:
+    with IMZMLWriter(
+        tmp_path / "profile", pixel_size=(1.0, 1.0), ibd_mode="continuous", spectrum_type="profile"
+    ) as writer:
         writer.add_spectrum(mzs, np.asarray([1.0, 2.0, 3.0], dtype=np.float32), (1, 1))
         writer.add_spectrum(mzs, np.asarray([4.0, 5.0, 6.0], dtype=np.float32), (2, 1))
 
@@ -177,7 +181,7 @@ def test_auto_ibd_mode_uses_spectrum_type(tmp_path: Path) -> None:
     mzs = np.asarray([100.0, 101.0], dtype=np.float64)
     intensities = np.asarray([1.0, 2.0], dtype=np.float32)
 
-    with IMZMLWriter(tmp_path / "auto_centroid", spectrum_type="centroid") as writer:
+    with IMZMLWriter(tmp_path / "auto_centroid", pixel_size=(1.0, 1.0), spectrum_type="centroid") as writer:
         writer.add_spectrum(mzs, intensities, (1, 1))
         writer.add_spectrum(mzs, intensities, (2, 1))
     *_, centroid_offsets, _coords, centroid_spectrum_mode, _mz_min, _mz_max = init_metadata(
@@ -185,7 +189,7 @@ def test_auto_ibd_mode_uses_spectrum_type(tmp_path: Path) -> None:
         parse_lib="ElementTree",
     )
 
-    with IMZMLWriter(tmp_path / "auto_profile", spectrum_type="profile") as writer:
+    with IMZMLWriter(tmp_path / "auto_profile", pixel_size=(1.0, 1.0), spectrum_type="profile") as writer:
         writer.add_spectrum(mzs, intensities, (1, 1))
         writer.add_spectrum(mzs, intensities, (2, 1))
     *_, profile_offsets, _coords, profile_spectrum_mode, _mz_min, _mz_max = init_metadata(
@@ -238,7 +242,7 @@ def test_reader_export_shifts_zero_based_coordinates(tmp_path: Path) -> None:
 
 def test_manual_empty_spectrum_warns_and_skips(tmp_path: Path) -> None:
     """Skip manual spectra without m/z peaks."""
-    with IMZMLWriter(tmp_path / "manual_empty") as writer:
+    with IMZMLWriter(tmp_path / "manual_empty", pixel_size=(1.0, 1.0)) as writer:
         assert writer.add_spectrum([100.0], [1.0], (1, 1)) is True
         with pytest.warns(EmptySpectrumWarning, match="no m/z peaks"):
             assert writer.add_spectrum([], [], (2, 1)) is False
@@ -252,7 +256,7 @@ def test_manual_empty_spectrum_warns_and_skips(tmp_path: Path) -> None:
 
 def test_manual_coordinates_are_xy_order(tmp_path: Path) -> None:
     """Treat manual writer coordinates as x/y axis order."""
-    with IMZMLWriter(tmp_path / "manual_xy") as writer:
+    with IMZMLWriter(tmp_path / "manual_xy", pixel_size=(1.0, 1.0)) as writer:
         writer.add_spectrum([100.0], [1.0], (7, 3))
 
     reader = IMZMLReader(tmp_path / "manual_xy.imzML", parse_lib="ElementTree")
@@ -281,20 +285,20 @@ def test_reader_empty_spectrum_warns_and_skips(tmp_path: Path) -> None:
 def test_writer_validation(tmp_path: Path) -> None:
     """Validate writer error handling."""
     with pytest.raises(ValueError, match="Unsupported mz_dtype"):
-        IMZMLWriter(tmp_path / "bad_dtype", mz_dtype=np.uint32)
+        IMZMLWriter(tmp_path / "bad_dtype", pixel_size=(1.0, 1.0), mz_dtype=np.uint32)
     with pytest.raises(ValueError, match="Invalid spectrum_type"):
-        IMZMLWriter(tmp_path / "bad_spectrum", spectrum_type="raw")  # type: ignore[arg-type]
+        IMZMLWriter(tmp_path / "bad_spectrum", pixel_size=(1.0, 1.0), spectrum_type="raw")  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="Invalid ibd_mode"):
-        IMZMLWriter(tmp_path / "bad_mode", ibd_mode="bad")  # type: ignore[arg-type]
+        IMZMLWriter(tmp_path / "bad_mode", pixel_size=(1.0, 1.0), ibd_mode="bad")  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="Invalid on_error"):
-        IMZMLWriter(tmp_path / "bad_error", on_error="skip")  # type: ignore[arg-type]
+        IMZMLWriter(tmp_path / "bad_error", pixel_size=(1.0, 1.0), on_error="skip")  # type: ignore[arg-type]
 
-    with IMZMLWriter(tmp_path / "continuous", ibd_mode="continuous") as writer:
+    with IMZMLWriter(tmp_path / "continuous", pixel_size=(1.0, 1.0), ibd_mode="continuous") as writer:
         writer.add_spectrum([1.0, 2.0], [1.0, 2.0], (1, 1))
         with pytest.raises(ValueError, match="identical"):
             writer.add_spectrum([1.0, 3.0], [1.0, 2.0], (2, 1))
 
-    writer = IMZMLWriter(tmp_path / "closed")
+    writer = IMZMLWriter(tmp_path / "closed", pixel_size=(1.0, 1.0))
     writer.add_spectrum([1.0], [1.0], (1, 1))
     writer.close()
     with pytest.raises(ValueError, match="closed"):
@@ -303,7 +307,7 @@ def test_writer_validation(tmp_path: Path) -> None:
 
 def test_manual_warn_skips_invalid_spectrum(tmp_path: Path) -> None:
     """Skip invalid manual spectra when warnings are requested."""
-    with IMZMLWriter(tmp_path / "manual_warn", on_error="warn") as writer:
+    with IMZMLWriter(tmp_path / "manual_warn", pixel_size=(1.0, 1.0), on_error="warn") as writer:
         assert writer.add_spectrum([100.0], [1.0], (1, 1)) is True
         with pytest.warns(SkippedSpectrumWarning, match="Skipping spectrum"):
             assert writer.add_spectrum([101.0], [2.0], (2,)) is False
@@ -318,7 +322,7 @@ def test_manual_warn_skips_invalid_spectrum(tmp_path: Path) -> None:
 def test_manual_error_deletes_partial_files(tmp_path: Path) -> None:
     """Delete partial files when manual writing fails in error mode."""
     with pytest.raises(ValueError, match="Coordinates"):
-        with IMZMLWriter(tmp_path / "manual_error") as writer:
+        with IMZMLWriter(tmp_path / "manual_error", pixel_size=(1.0, 1.0)) as writer:
             writer.add_spectrum([100.0], [1.0], (1, 1))
             writer.add_spectrum([101.0], [2.0], (2,))
 
@@ -364,7 +368,7 @@ def test_reader_error_deletes_partial_files(tmp_path: Path) -> None:
 def test_warn_all_skipped_deletes_partial_files(tmp_path: Path) -> None:
     """Reject zero-spectrum files after all spectra are skipped."""
     with pytest.raises(ValueError, match="without any spectra"):
-        with IMZMLWriter(tmp_path / "empty_warn", on_error="warn") as writer:
+        with IMZMLWriter(tmp_path / "empty_warn", pixel_size=(1.0, 1.0), on_error="warn") as writer:
             with pytest.warns(SkippedSpectrumWarning, match="Skipping spectrum"):
                 writer.add_spectrum([100.0], [1.0], (1,))
 
@@ -380,7 +384,7 @@ def test_overwrite_false_refuses_existing_outputs(tmp_path: Path) -> None:
     ibd_path.write_bytes(b"old ibd")
 
     with pytest.raises(FileExistsError, match="Refusing to overwrite"):
-        IMZMLWriter(tmp_path / "existing")
+        IMZMLWriter(tmp_path / "existing", pixel_size=(1.0, 1.0))
 
     assert imzml_path.read_text(encoding="utf-8") == "old xml"
     assert ibd_path.read_bytes() == b"old ibd"
@@ -394,7 +398,7 @@ def test_overwrite_true_replaces_existing_outputs(tmp_path: Path) -> None:
     imzml_path.write_text("old xml", encoding="utf-8")
     ibd_path.write_bytes(b"old ibd")
 
-    with IMZMLWriter(tmp_path / "replace", overwrite=True) as writer:
+    with IMZMLWriter(tmp_path / "replace", pixel_size=(1.0, 1.0), overwrite=True) as writer:
         writer.add_spectrum([100.0], [1.0], (1, 1))
 
     exported = IMZMLReader(imzml_path, parse_lib="ElementTree")
@@ -406,13 +410,13 @@ def test_overwrite_true_replaces_existing_outputs(tmp_path: Path) -> None:
 def test_atomic_failure_preserves_existing_outputs(tmp_path: Path) -> None:
     """Leave existing final files untouched when overwrite export fails."""
     output_path = tmp_path / "atomic"
-    with IMZMLWriter(output_path) as writer:
+    with IMZMLWriter(output_path, pixel_size=(1.0, 1.0)) as writer:
         writer.add_spectrum([100.0], [1.0], (1, 1))
     old_xml = output_path.with_suffix(".imzML").read_bytes()
     old_ibd = output_path.with_suffix(".ibd").read_bytes()
 
     with pytest.raises(RuntimeError, match="planned failure"):
-        with IMZMLWriter(output_path, overwrite=True) as writer:
+        with IMZMLWriter(output_path, pixel_size=(1.0, 1.0), overwrite=True) as writer:
             writer.add_spectrum([101.0], [2.0], (2, 1))
             raise RuntimeError("planned failure")
 
@@ -536,7 +540,7 @@ def test_write_imzml_rejects_unknown_normalization(tmp_path: Path) -> None:
 def test_user_params_are_escaped(tmp_path: Path) -> None:
     """Write user params with XML special and non-Latin-1 characters that parse back unchanged."""
     name = "a&b<c>\"d'\n\tµ ☃"
-    with IMZMLWriter(tmp_path / "params") as writer:
+    with IMZMLWriter(tmp_path / "params", pixel_size=(1.0, 1.0)) as writer:
         writer.add_spectrum([100.0], [1.0], (1, 1), user_params=[{"name": name, "value": 3.5}])
         writer.add_spectrum([101.0], [2.0], (2, 1))
 
@@ -547,7 +551,7 @@ def test_user_params_are_escaped(tmp_path: Path) -> None:
 
 def test_invalid_user_params_are_rejected(tmp_path: Path) -> None:
     """Reject user params without name/value before anything is written."""
-    with IMZMLWriter(tmp_path / "bad_params", on_error="warn") as writer:
+    with IMZMLWriter(tmp_path / "bad_params", pixel_size=(1.0, 1.0), on_error="warn") as writer:
         with pytest.warns(SkippedSpectrumWarning, match="user_params"):
             assert writer.add_spectrum([100.0], [1.0], (1, 1), user_params=[{"name": "x"}]) is False
         assert writer.add_spectrum([101.0], [2.0], (2, 1)) is True
@@ -559,7 +563,7 @@ def test_skipped_spectra_keep_ibd_consistent(tmp_path: Path) -> None:
     import hashlib
 
     mzs = np.asarray([100.0, 101.0, 102.0])
-    with IMZMLWriter(tmp_path / "skips", ibd_mode="continuous", on_error="warn") as writer:
+    with IMZMLWriter(tmp_path / "skips", pixel_size=(1.0, 1.0), ibd_mode="continuous", on_error="warn") as writer:
         writer.add_spectrum(mzs, [1.0, 2.0, 3.0], (1, 1))
         with pytest.warns(SkippedSpectrumWarning, match="identical"):
             assert writer.add_spectrum([100.0, 101.0, 103.0], [4.0, 5.0, 6.0], (2, 1)) is False
@@ -581,7 +585,7 @@ def test_spectrum_list_streams_across_chunks(tmp_path: Path) -> None:
 
     n_spectra = _XML_CHUNK_SIZE + 3
     width = 100
-    with IMZMLWriter(tmp_path / "chunks") as writer:
+    with IMZMLWriter(tmp_path / "chunks", pixel_size=(1.0, 1.0)) as writer:
         for index in range(n_spectra):
             writer.add_spectrum([100.0 + index, 200.0], [float(index), 1.0], (index % width + 1, index // width + 1))
 

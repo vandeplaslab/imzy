@@ -1,5 +1,6 @@
 """Get normalization utilities."""
 
+import typing as ty
 import warnings
 from pathlib import Path
 
@@ -50,11 +51,13 @@ def _get_outlier_mask(norm: np.ndarray, n_orders: int = 2) -> np.ndarray:
     return mask
 
 
-def create_normalizations_hdf5(input_dir: PathLike, hdf_path: PathLike) -> Path:
-    """Create group with datasets inside."""
+def create_normalizations_hdf5(
+    input_dir: PathLike, hdf_path: PathLike, *, reader_kwargs: dict[str, ty.Any] | None = None,
+) -> Path:
+    """Create normalization datasets, preserving any reader view options."""
     from imzy._readers import get_reader
 
-    reader = get_reader(input_dir)
+    reader = get_reader(input_dir, **(reader_kwargs or {}))
     n_pixels = reader.n_pixels
 
     compression = hdf5plugin.LZ4()
@@ -71,10 +74,13 @@ def create_normalizations_hdf5(input_dir: PathLike, hdf_path: PathLike) -> Path:
     return hdf_path
 
 
-def extract_normalizations_hdf5(input_dir: PathLike, hdf_path: PathLike, silent: bool = False) -> Path:
-    """Extract normalizations from hdf5."""
+def extract_normalizations_hdf5(
+    input_dir: PathLike, hdf_path: PathLike, silent: bool = False, *,
+    reader_kwargs: dict[str, ty.Any] | None = None,
+) -> Path:
+    """Extract normalizations for the requested reader view to HDF5."""
     normalization_names = get_normalizations()
-    normalizations = compute_normalizations(input_dir, clean=True, silent=silent)
+    normalizations = compute_normalizations(input_dir, clean=True, silent=silent, reader_kwargs=reader_kwargs)
 
     store = H5NormalizationStore(hdf_path, mode="a")
     with np.errstate(invalid="ignore", divide="ignore"):
@@ -86,11 +92,14 @@ def extract_normalizations_hdf5(input_dir: PathLike, hdf_path: PathLike, silent:
     return hdf_path
 
 
-def compute_normalizations(input_dir: Path, clean: bool = True, silent: bool = False) -> np.ndarray:
-    """Calculate normalizations for a set of frames."""
+def compute_normalizations(
+    input_dir: PathLike, clean: bool = True, silent: bool = False, *,
+    reader_kwargs: dict[str, ty.Any] | None = None,
+) -> np.ndarray:
+    """Calculate normalizations, optionally reopening a filtered reader view."""
     from imzy._readers import get_reader
 
-    reader = get_reader(input_dir)
+    reader = get_reader(input_dir, **(reader_kwargs or {}))
     return _compute_normalizations(reader, clean=clean, silent=silent)
 
 

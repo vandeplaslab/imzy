@@ -67,7 +67,9 @@ def bench_export(directory: Path, pixels: int, points: int) -> dict[str, float]:
     """Time ``write_imzml`` from an imzML reader (source generation untimed)."""
     pool = make_pool(points)
     width = int(np.ceil(np.sqrt(pixels)))
-    with IMZMLWriter(directory / "source", ibd_mode="processed", spectrum_type="centroid") as writer:
+    with IMZMLWriter(
+        directory / "source", pixel_size=(50.0, 50.0), ibd_mode="processed", spectrum_type="centroid"
+    ) as writer:
         for i in range(pixels):
             mzs, intensities = pool[i % POOL_SIZE]
             writer.add_spectrum(mzs, intensities, (i % width + 1, i // width + 1))

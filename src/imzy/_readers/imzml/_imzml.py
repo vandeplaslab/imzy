@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import importlib
 import operator
-import sys
 import typing as ty
 from pathlib import Path
 from warnings import warn
@@ -15,14 +14,26 @@ from koyo.typing import PathLike
 from tqdm import tqdm
 
 from imzy._readers._base import BaseReader
-from imzy._readers.imzml._ontology import get_cv_param
+from imzy._readers.imzml._cache import fingerprint, load_cache, save_cache
+from imzy._readers.imzml._metadata import (
+    check_uuid,
+    choose_iterparse,
+    parse_metadata,
+    read_values,
+    validate_metadata,
+)
 from imzy.hookspec import hook_impl
 from imzy.processing import accumulate_peaks_centroid, accumulate_peaks_profile
 from imzy.utilities import _auto_guess_ppm
 
 PRECISION_DICT = {"32-bit float": "f", "64-bit float": "d", "32-bit integer": "i", "64-bit integer": "l"}
 SIZE_DICT = {"f": 4, "d": 8, "i": 4, "l": 8}
-DTYPE_DICT = {"f": np.dtype("<f4"), "d": np.dtype("<f8"), "i": np.dtype("<i4"), "l": np.dtype("<i8")}
+DTYPE_DICT: dict[str, np.dtype[ty.Any]] = {
+    "f": np.dtype("<f4"),
+    "d": np.dtype("<f8"),
+    "i": np.dtype("<i4"),
+    "l": np.dtype("<i8"),
+}
 SPECTRUM_MODE_CENTROID = "centroid"
 SPECTRUM_MODE_PROFILE = "profile"
 LOWEST_OBSERVED_MZ_ACCESSION = "MS:1000528"
@@ -36,35 +47,13 @@ _BLOCK_SIZE = 1024
 class IMZMLCache:
     """Cache for imzML keys/values."""
 
-    def __init__(self, metadata_dict: dict):
+    def __init__(self, metadata_dict: dict[str, ty.Any]) -> None:
         self.metadata_dict = metadata_dict
         self.PX_MAX_X: int = metadata_dict["max count of pixels x"]
         self.PX_MAX_Y: int = metadata_dict["max count of pixels y"]
         self.PX_MAX_Z: int = metadata_dict.get("max count of pixels z", 1)
-        self.PX_SIZE_X: float = metadata_dict.get("pixel size x", 1)
-        self.PX_SIZE_Y: float = metadata_dict.get("pixel size y", 1)
-
-    def to_cache(self) -> dict:
-        """Serialize metadata to cache."""
-        return {
-            "px_max_x": self.PX_MAX_X,
-            "px_max_y": self.PX_MAX_Y,
-            "px_max_z": self.PX_MAX_Z,
-            "px_size_x": self.PX_SIZE_X,
-            "px_size_y": self.PX_SIZE_Y,
-        }
-
-    @classmethod
-    def from_cache(cls, path: Path) -> IMZMLCache:
-        """Read data from cache."""
-        data = {}
-        with np.load(path) as f_ptr:
-            data["max count of pixels x"] = f_ptr["px_max_x"]
-            data["max count of pixels y"] = f_ptr["px_max_y"]
-            data["max count of pixels z"] = f_ptr["px_max_z"]
-            data["pixel size x"] = f_ptr["px_size_x"]
-            data["pixel size y"] = f_ptr["px_size_y"]
-        return cls(data)
+        self.PX_SIZE_X: float | None = metadata_dict.get("pixel size x")
+        self.PX_SIZE_Y: float | None = metadata_dict.get("pixel size y")
 
 
 class IMZMLReader(BaseReader):
@@ -75,6 +64,11 @@ class IMZMLReader(BaseReader):
     for writable data. Keep the dataset unchanged while readers, arrays, or
     iterators exist. Closing a reader releases its mapping, but existing arrays
     and iterators retain their backing storage until they are released.
+
+    ``pixel_size=(x_um, y_um)`` supplies positive physical sizes when metadata is
+    missing or ambiguous. ``z_plane`` selects a normalized one-based plane for all
+    spectrum and export operations. Without selection, multi-plane acquisitions
+    support spectra and tables but require a plane for two-dimensional images.
     """
 
     _ibd_path: Path | None = None
@@ -82,6 +76,7 @@ class IMZMLReader(BaseReader):
     _is_centroid: bool | None = None
     _mz_grid: np.ndarray | None = None
     _spectrum_mode: SpectrumMode | None = None
+    byte_offsets: np.ndarray
 
     def __init__(
         self,
@@ -95,15 +90,35 @@ class IMZMLReader(BaseReader):
         parse_lib: str | None = None,
         *,
         backend: Backend = "auto",
+        pixel_size: tuple[float, float] | None = None,
+        z_plane: int | None = None,
     ) -> None:
         if backend not in {"auto", "rust", "python"}:
             raise ValueError("backend must be 'auto', 'rust', or 'python'.")
+        choose_iterparse(parse_lib)
+        if pixel_size is not None:
+            sizes = np.asarray(pixel_size, dtype=float)
+            if sizes.shape != (2,) or not np.isfinite(sizes).all() or np.any(sizes <= 0):
+                raise ValueError("pixel_size must contain two finite, positive sizes in um.")
+            pixel_size = (float(sizes[0]), float(sizes[1]))
+        if z_plane is not None:
+            try:
+                z_plane = operator.index(z_plane)
+            except TypeError as error:
+                raise ValueError("z_plane must be a normalized one-based integer.") from error
+            if z_plane < 1:
+                raise ValueError("z_plane must be a normalized one-based integer.")
         super().__init__(path, auto_profile=auto_profile)
         self._closed = False
         self._native: ty.Any = None
         self._iterator: ty.Iterator[tuple[np.ndarray, np.ndarray]] | None = None
         self._requested_backend = backend
         self._parse_lib = parse_lib
+        self._pixel_size_override = pixel_size
+        self._z_plane = z_plane
+        self._explicit_mz_bounds = (mz_min, mz_max)
+        self._is_centroid = None
+        self._tic = None
         self._mz_min = mz_min
         self._mz_max = mz_max
         self._init(ibd_path, parse_lib=parse_lib)
@@ -189,69 +204,74 @@ class IMZMLReader(BaseReader):
             "mz_max": self._mz_max,
             "parse_lib": self._parse_lib,
             "backend": self._requested_backend,
+            "pixel_size": self._pixel_size_override,
+            "z_plane": self._z_plane,
         }
 
     def _init(self, ibd_path: PathLike | None = None, parse_lib: str | None = None) -> None:
         """Initialize metadata."""
         _, self._ibd_path, self._icache_path = infer_path(self.path, ibd_path)
-        cache_needs_upgrade = False
-        if self._icache_path and self._icache_path.exists():
-            (
-                self.mz_precision,
-                self.int_precision,
-                self.byte_offsets,
-                self._xyz_coordinates,
-                mz_min,
-                mz_max,
-                self._spectrum_mode,
-            ) = read_icache(self._icache_path)
-            cache_needs_upgrade = mz_min is None or mz_max is None or self._spectrum_mode is None
-            xml_mz_min, xml_mz_max = None, None
-            if cache_needs_upgrade:
-                self._spectrum_mode, xml_mz_min, xml_mz_max = init_spectrum_metadata(
-                    self.path,
-                    parse_lib=parse_lib,
-                    fallback_spectrum_mode=self._spectrum_mode,
-                )
-            self._apply_mass_range(mz_min, mz_max)
-            self._apply_centroid_xml_mass_range(xml_mz_min, xml_mz_max)
-            self._imzml_cache = IMZMLCache.from_cache(self._icache_path)
-        else:
-            (
-                root,
-                self.mz_precision,
-                self.int_precision,
-                self.byte_offsets,
-                self._xyz_coordinates,
-                self._spectrum_mode,
-                xml_mz_min,
-                xml_mz_max,
-            ) = init_metadata(self.path, parse_lib=parse_lib)
-            self._apply_centroid_xml_mass_range(xml_mz_min, xml_mz_max)
-            self._icache_path = self.path.with_suffix(".icache")
-            metadata = read_imzml_metadata(root)
-            self._imzml_cache = IMZMLCache(metadata)
+        assert self._icache_path is not None
+        self._source_fingerprint = fingerprint(self.path, self.ibd_path)
+        metadata = load_cache(self._icache_path, self._source_fingerprint)
+        if metadata is not None:
+            try:
+                validate_metadata(metadata, self.path, self.ibd_path)
+            except (ValueError, KeyError, IndexError):
+                metadata = None
+        rebuild = metadata is None
+        if metadata is None:
+            metadata = parse_metadata(self.path, parse_lib)
+            validate_metadata(metadata, self.path, self.ibd_path)
+        self._source_metadata = metadata
+        check_uuid(metadata.uuid, self.path, self.ibd_path)
+        if rebuild:
+            self._write_icache_safely()
+        self.mz_precision, self.int_precision = metadata.mz_precision, metadata.int_precision
         self._mz_size, self._int_size = SIZE_DICT[self.mz_precision], SIZE_DICT[self.int_precision]
+        self.byte_offsets = metadata.offsets
+        self._xyz_coordinates = metadata.coordinates
+        self._spectrum_mode = ty.cast(SpectrumMode | None, metadata.mode)
+        self._apply_geometry()
 
-        # if the cache file does not exist, write it immediately
-        if not self._icache_path.exists():
-            self._write_icache_safely()
-        elif (
-            cache_needs_upgrade
-            and self._spectrum_mode is not None
-            and self._mz_min is not None
-            and self._mz_max is not None
-        ):
-            self._write_icache_safely()
+    def _apply_geometry(self) -> None:
+        """Apply per-reader overrides and selections to the complete source metadata."""
+        metadata = self._source_metadata
+        values = metadata.values.copy()
+        values["max count of pixels z"] = int(metadata.coordinates[:, 2].max()) if len(metadata.coordinates) else 1
+        if self._pixel_size_override is not None:
+            values["pixel size x"], values["pixel size y"] = self._pixel_size_override
+        else:
+            for axis in ("x", "y"):
+                if values[f"pixel size {axis}"] is None:
+                    warn(
+                        f"{self.path}: {values[f'pixel size {axis} reason']} for {axis}; "
+                        "provide pixel_size=(x_um, y_um) for physical sizing.",
+                        stacklevel=3,
+                    )
+        self._imzml_cache = IMZMLCache(values)
+        if self._z_plane is not None:
+            selection = metadata.coordinates[:, 2] == self._z_plane
+            if not np.any(selection):
+                raise ValueError(f"{self.path}: z_plane={self._z_plane} is absent from normalized z coordinates.")
+            self.byte_offsets = metadata.offsets[selection]
+            self._xyz_coordinates = metadata.coordinates[selection]
+        elif self._spectrum_mode == SPECTRUM_MODE_CENTROID:
+            self._apply_mass_range(metadata.mz_min, metadata.mz_max)
+        assert self._xyz_coordinates is not None
+        self._xyz_coordinates.setflags(write=False)
+        self._image_geometry_error: str | None = None
+        self._image_geometry_checked = False
 
     def _write_icache_safely(self) -> None:
         """Write the imzML cache when the cache path is available."""
         if self._icache_path is None:
             return
         try:
-            write_icache(self, self._icache_path)
-        except OSError as error:  # in case there is no space or can't write?
-            print(error)
+            save_cache(self._icache_path, self._source_metadata, self._source_fingerprint)
+        except OSError:
+            # Caching is optional on read-only or full filesystems.
+            pass
 
     def _apply_mass_range(self, mz_min: float | None, mz_max: float | None) -> None:
         """Apply cached mass bounds without overriding explicit constructor values."""
@@ -328,12 +348,54 @@ class IMZMLReader(BaseReader):
     @property
     def x_pixel_size(self) -> float:
         """Return x pixel size in micrometers."""
-        return self.metadata.PX_SIZE_X
+        return self._physical_size("x")
 
     @property
     def y_pixel_size(self) -> float:
         """Return y pixel size in micrometers."""
-        return self.metadata.PX_SIZE_Y
+        return self._physical_size("y")
+
+    def _physical_size(self, axis: str) -> float:
+        value = self.metadata.PX_SIZE_X if axis == "x" else self.metadata.PX_SIZE_Y
+        if value is None:
+            reason = self.metadata.metadata_dict[f"pixel size {axis} reason"]
+            raise ValueError(f"{self.path}: {reason} for {axis}; provide pixel_size=(x_um, y_um).")
+        return value
+
+    @property
+    def source_coordinate_base(self) -> tuple[int, int, int | None]:
+        """Return detected input axis bases; None means z was absent throughout."""
+        return self._source_metadata.coordinate_base
+
+    @property
+    def x_size(self) -> int:
+        """Return the full acquisition grid width, including unoccupied columns."""
+        return self.metadata.PX_MAX_X
+
+    @property
+    def y_size(self) -> int:
+        """Return the full acquisition grid height, including unoccupied rows."""
+        return self.metadata.PX_MAX_Y
+
+    def _check_image_geometry(self) -> None:
+        if not self._image_geometry_checked:
+            if len(np.unique(self.z_coordinates)) > 1:
+                self._image_geometry_error = "select z_plane= before using a 2-D image or centroid store"
+            elif len(np.unique(self.xyz_coordinates[:, :2], axis=0)) != self.n_pixels:
+                self._image_geometry_error = "duplicate x/y coordinates cannot form an unambiguous 2-D image"
+            self._image_geometry_checked = True
+        if self._image_geometry_error:
+            raise ValueError(f"{self.path}: {self._image_geometry_error}.")
+
+    def get_index_for_location(self, x: float, y: float) -> int | None:
+        """Find a pixel by its normalized one-based x/y location."""
+        self._check_image_geometry()
+        if not float(x).is_integer() or not float(y).is_integer():
+            raise ValueError("Image coordinates must be whole numbers.")
+        if not (1 <= x <= self.x_size and 1 <= y <= self.y_size):
+            raise ValueError(f"Coordinate ({x}, {y}) is outside the acquisition grid.")
+        indices = np.flatnonzero((self.x_coordinates == x) & (self.y_coordinates == y))
+        return int(indices[0]) if len(indices) else None
 
     @property
     def mz_x(self) -> np.ndarray:
@@ -352,10 +414,11 @@ class IMZMLReader(BaseReader):
         This is equivalent to multiplying the image coordinates of the given pixel with the pixel size.
         """
         x, y, _ = self.xyz_coordinates[index]
-        return x * self.metadata.PX_SIZE_X, y * self.metadata.PX_SIZE_Y
+        return float(x * self.x_pixel_size), float(y * self.y_pixel_size)
 
     def reshape(self, array: np.ndarray, fill_value: float = 0) -> np.ndarray:
         """Reshape vector of intensities."""
+        self._check_image_geometry()
         if len(array) != self.n_pixels:
             raise ValueError("Wrong size and shape of the array.")
         dtype = np.float32 if np.isnan(fill_value) else array.dtype
@@ -365,6 +428,7 @@ class IMZMLReader(BaseReader):
 
     def reshape_batch(self, array: np.ndarray, fill_value: float = 0) -> np.ndarray:
         """Batch reshaping of images."""
+        self._check_image_geometry()
         if array.ndim != 2:
             raise ValueError("Expected 2-D array.")
         if len(array) != self.n_pixels:
@@ -378,7 +442,40 @@ class IMZMLReader(BaseReader):
 
     def flatten(self, image: np.ndarray) -> np.ndarray:
         """Retrieve the original vector of intensities from an image."""
-        return image[self.y_coordinates - 1, self.x_coordinates - 1]
+        self._check_image_geometry()
+        if image.shape != self.image_shape:
+            raise ValueError(f"Expected an image with shape {self.image_shape}.")
+        return ty.cast(np.ndarray, image[self.y_coordinates - 1, self.x_coordinates - 1])
+
+    def to_hdf5(
+        self,
+        hdf_path: PathLike,
+        mzs: ty.Iterable[float],
+        tol: float | None = None,
+        ppm: float | None = None,
+        as_flat: bool = True,
+        max_mem: float = 512,
+        silent: bool = False,
+    ) -> Path:
+        """Export a single z plane to a two-dimensional HDF5 centroid store."""
+        self._check_image_geometry()
+        return super().to_hdf5(hdf_path, mzs, tol, ppm, as_flat, max_mem, silent)
+
+    extract_centroids_hdf5 = to_hdf5
+
+    def to_zarr(
+        self,
+        zarr_path: PathLike,
+        mzs: ty.Iterable[float],
+        tol: float | None = None,
+        ppm: float | None = None,
+        as_flat: bool = True,
+        chunk_size: tuple[int, int] | None = None,
+        silent: bool = False,
+    ) -> Path:
+        """Export a single z plane to a two-dimensional Zarr centroid store."""
+        self._check_image_geometry()
+        return super().to_zarr(zarr_path, mzs, tol, ppm, as_flat, chunk_size, silent)
 
     def get_summed_spectrum(
         self, indices: ty.Iterable[int], scales: np.ndarray | None = None, silent: bool = False
@@ -444,7 +541,9 @@ class IMZMLReader(BaseReader):
                 self._mz_min = float(mz_min)
             if self._mz_max is None:
                 self._mz_max = float(mz_max)
-            self._write_icache_safely()
+            if self._z_plane is None and self._explicit_mz_bounds == (None, None):
+                self._source_metadata.mz_min, self._source_metadata.mz_max = self._mz_min, self._mz_max
+                self._write_icache_safely()
         return self._mz_min, self._mz_max
 
     def _estimate_centroid_mass_range(self) -> tuple[float, float]:
@@ -475,7 +574,7 @@ class IMZMLReader(BaseReader):
         self._check_open()
         index = self._normalize_index(index)
         if self._native is not None:
-            return self._native.spectrum(index)
+            return ty.cast(tuple[np.ndarray, np.ndarray], self._native.spectrum(index))
         with open(self.ibd_path, "rb") as f_ptr:
             return self._python_spectrum(f_ptr, index)
 
@@ -484,7 +583,7 @@ class IMZMLReader(BaseReader):
         self._check_open()
         index = self._normalize_index(index)
         if self._native is not None:
-            return self._native.intensities(index)
+            return ty.cast(np.ndarray, self._native.intensities(index))
         offset, length = self.byte_offsets[index, 2:]
         with open(self.ibd_path, "rb") as f_ptr:
             f_ptr.seek(offset)
@@ -530,7 +629,7 @@ class IMZMLReader(BaseReader):
         self._check_open()
         selection = None if indices is None else self._selection(indices)
         if self._native is not None:
-            return self._native.spectra(selection)
+            return ty.cast(ty.Iterator[tuple[np.ndarray, np.ndarray]], self._native.spectra(selection))
         return self._python_spectra(range(self.n_pixels) if selection is None else selection)
 
     def _python_spectra(self, indices: ty.Iterable[int]) -> ty.Iterator[tuple[np.ndarray, np.ndarray]]:
@@ -635,95 +734,27 @@ class IMZMLReader(BaseReader):
         yield None, None, result
 
 
-def infer_path(path: Path, ibd_path: PathLike | None = None) -> tuple[Path, Path, Path | None]:
-    """Infer imzml/ibd path."""
-    import re
-
+def infer_path(path: Path, ibd_path: PathLike | None = None) -> tuple[Path, Path, Path]:
+    """Resolve an exact binary sibling or a unique case-insensitive filename match."""
     if ibd_path is None:
-        ibd_path = path.with_suffix(".ibd")
+        exact = path.with_suffix(".ibd")
+        if exact.is_file():
+            ibd_path = exact
+        else:
+            matches = [
+                item
+                for item in path.parent.iterdir()
+                if item.is_file() and item.name.casefold() == exact.name.casefold()
+            ]
+            if len(matches) > 1:
+                raise ValueError(f"{path}: ambiguous binary siblings: {matches}.")
+            ibd_path = matches[0] if matches else exact
+    return path, Path(ibd_path), path.with_suffix(".icache")
 
-        for _path in path.parent.iterdir():
-            if _path.suffix.lower() == ".ibd" and _path.stem == path.stem:
-                ibd_path = _path
-                break
-    icache_path = None
-    for _path in path.parent.glob("*.icache"):
-        if re.match(r".+\.icache", str(_path), re.IGNORECASE) and _path.stem == path.stem:
-            icache_path = _path
-            break
-    return path, Path(ibd_path), icache_path
 
-
-# noinspection HttpUrlsUsage
-def read_imzml_metadata(root, sl: str = "{http://psi.hupo.org/ms/mzml}"):
-    """Initializes the imzml dict with frequently used metadata from the .imzML file.
-
-    This method reads only a subset of the available meta information and may be extended in the future. The keys
-    are named similarly to the imzML names. Currently supported keys: "max dimension x", "max dimension y",
-    "pixel size x", "pixel size y", "matrix solution concentration", "wavelength", "focus diameter x",
-    "focus diameter y", "pulse energy", "pulse duration", "attenuation".
-
-    If a key is not found in the XML tree, it will not be in the dict either.
-
-    :return d:
-        dict containing above mentioned meta data
-    :rtype:
-        dict
-    :raises Warning:
-        if an xml attribute has a number format different from the imzML specification
-    """
-
-    def _check_meta(param, accession, elem_list):
-        for idx, _ in enumerate(param):
-            acc, attr = accession[idx]
-            elem = elem_list.find(f'.//{sl}cvParam[@accession="{acc}"]')
-            try:
-                if elem is not None:
-                    name, value = param[idx]
-                    metadata_dict[name] = value(elem.attrib[attr])
-            except ValueError:
-                warn(Warning(f"Wrong data type in XML file. Skipped attribute '{name}'"), stacklevel=3)
-
-    metadata_dict = {}
-    scan_settings_list_elem = root.find(f"{sl}scanSettingsList")
-    instrument_config_list_elem = root.find(f"{sl}instrumentConfigurationList")
-    supported_params_1 = [
-        ("max count of pixels x", int),
-        ("max count of pixels y", int),
-        ("max dimension x", int),
-        ("max dimension y", int),
-        ("pixel size x", float),
-        ("pixel size y", float),
-        ("matrix solution concentration", float),
-    ]
-    supported_params_2 = [
-        ("wavelength", float),
-        ("focus diameter x", float),
-        ("focus diameter y", float),
-        ("pulse energy", float),
-        ("pulse duration", float),
-        ("attenuation", float),
-    ]
-    supported_accession_1 = [
-        ("IMS:1000042", "value"),
-        ("IMS:1000043", "value"),
-        ("IMS:1000044", "value"),
-        ("IMS:1000045", "value"),
-        ("IMS:1000046", "value"),
-        ("IMS:1000047", "value"),
-        ("MS:1000835", "value"),
-    ]
-    supported_accession_2 = [
-        ("MS:1000843", "value"),
-        ("MS:1000844", "value"),
-        ("MS:1000845", "value"),
-        ("MS:1000846", "value"),
-        ("MS:1000847", "value"),
-        ("MS:1000848", "value"),
-    ]
-    _check_meta(supported_params_1, supported_accession_1, scan_settings_list_elem)
-    _check_meta(supported_params_2, supported_accession_2, instrument_config_list_elem)
-    return metadata_dict
+def read_imzml_metadata(root: ty.Any, sl: str = "{http://psi.hupo.org/ms/mzml}") -> dict[str, ty.Any]:
+    """Read resolved acquisition dimensions and pixel sizes in um."""
+    return read_values(root)
 
 
 def init_metadata(
@@ -731,68 +762,17 @@ def init_metadata(
     parse_lib: str | None = None,
     sl: str = "{http://psi.hupo.org/ms/mzml}",
 ) -> tuple[ty.Any, str, str, np.ndarray, np.ndarray, SpectrumMode | None, float | None, float | None]:
-    """Method to initialize formats, coordinates and offsets from the imzML file format.
-
-    This method should only be called by __init__. Reads the data formats, coordinates and offsets from
-    the .imzML file and initializes the respective attributes. While traversing the XML tree, the per-spectrum
-    metadata is pruned, i.e. the <spectrumList> element(s) are left behind empty.
-
-    Supported accession values for the number formats: "MS:1000521", "MS:1000523", "IMS:1000141" or
-    "IMS:1000142". The string values are "32-bit float", "64-bit float", "32-bit integer", "64-bit integer".
-    """
-    mz_group = int_group = None
-
-    # get iterator
-    iterparse = choose_iterparse(parse_lib)
-    elem_iterator = iterparse(str(path), events=("start", "end"))
-
-    temp, mz_group_id, int_group_id = None, None, None
-    _, root = next(elem_iterator)
-
-    offsets = []
-    spectrum_modes: list[SpectrumMode] = []
-    spectrum_mz_ranges: list[MzRange | None] = []
-    spectrum_list_tag = sl + "spectrumList"
-    spectrum_tag = sl + "spectrum"
-    referenceable_group_tag = sl + "referenceableParamGroup"
-    mode_tags = {sl + "fileContent", spectrum_tag, referenceable_group_tag}
-    for event, elem in elem_iterator:
-        if event == "start" and elem.tag == spectrum_list_tag:
-            temp = elem
-            continue
-        if event != "end":
-            continue
-        if elem.tag in mode_tags:
-            append_spectrum_mode(spectrum_modes, elem, sl=sl)
-        if elem.tag == spectrum_tag:
-            spectrum_mz_ranges.append(get_observed_mz_range(elem, sl=sl))
-            offsets.append(process_spectrum(elem, mz_group_id, int_group_id))
-            temp.remove(elem)
-        elif elem.tag == referenceable_group_tag:
-            for param in elem:
-                if param.attrib["name"] == "m/z array":
-                    mz_group_id = elem.attrib["id"]
-                    mz_group = elem
-                elif param.attrib["name"] == "intensity array":
-                    int_group_id = elem.attrib["id"]
-                    int_group = elem
-
-    # cleanup
-    mz_precision, int_precision = assign_precision(int_group, mz_group)
-    fix_offsets(offsets)
-    offsets = np.array(offsets, dtype=np.int64)
-    byte_offsets = offsets[:, 0:4]
-    coordinates = offsets[:, 4::]
-    mz_min, mz_max = resolve_observed_mz_range(spectrum_mz_ranges)
+    """Stream resolved metadata, pruning spectrum XML after each record."""
+    metadata = parse_metadata(path, parse_lib)
     return (
-        root,
-        mz_precision,
-        int_precision,
-        byte_offsets,
-        coordinates,
-        resolve_spectrum_mode(spectrum_modes),
-        mz_min,
-        mz_max,
+        metadata.root,
+        metadata.mz_precision,
+        metadata.int_precision,
+        metadata.offsets,
+        metadata.coordinates,
+        ty.cast(SpectrumMode | None, metadata.mode),
+        metadata.mz_min,
+        metadata.mz_max,
     )
 
 
@@ -802,255 +782,16 @@ def init_spectrum_metadata(
     sl: str = "{http://psi.hupo.org/ms/mzml}",
     fallback_spectrum_mode: SpectrumMode | None = None,
 ) -> tuple[SpectrumMode | None, float | None, float | None]:
-    """Read spectrum mode and complete observed m/z bounds from imzML XML."""
-    iterparse = choose_iterparse(parse_lib)
-    elem_iterator = iterparse(str(path), events=("start", "end"))
-
-    temp = None
-    next(elem_iterator)
-
-    spectrum_modes: list[SpectrumMode] = []
-    spectrum_mz_ranges: list[MzRange | None] = []
-    spectrum_list_tag = sl + "spectrumList"
-    mode_tags = {sl + "fileContent", sl + "referenceableParamGroup", sl + "spectrum"}
-    for event, elem in elem_iterator:
-        if event == "start" and elem.tag == spectrum_list_tag:
-            temp = elem
-            continue
-        if event != "end":
-            continue
-        if elem.tag in mode_tags:
-            append_spectrum_mode(spectrum_modes, elem, sl=sl)
-        if elem.tag == sl + "spectrum":
-            spectrum_mz_ranges.append(get_observed_mz_range(elem, sl=sl))
-            if temp is not None:
-                temp.remove(elem)
-    spectrum_mode = resolve_spectrum_mode(spectrum_modes) or fallback_spectrum_mode
-    mz_min, mz_max = resolve_observed_mz_range(spectrum_mz_ranges)
-    return spectrum_mode, mz_min, mz_max
+    """Read resolved mode and complete observed mass bounds from spectrum XML."""
+    metadata = parse_metadata(path, parse_lib)
+    return ty.cast(SpectrumMode | None, metadata.mode) or fallback_spectrum_mode, metadata.mz_min, metadata.mz_max
 
 
 def init_spectrum_mode(
-    path: Path,
-    parse_lib: str | None = None,
-    sl: str = "{http://psi.hupo.org/ms/mzml}",
+    path: Path, parse_lib: str | None = None, sl: str = "{http://psi.hupo.org/ms/mzml}"
 ) -> SpectrumMode | None:
-    """Read the spectrum mode from imzML cvParams without reading binary data."""
-    spectrum_mode, _, _ = init_spectrum_metadata(path, parse_lib=parse_lib, sl=sl)
-    return spectrum_mode
-
-
-def append_spectrum_mode(spectrum_modes: list[SpectrumMode], elem: ty.Any, sl: str) -> None:
-    """Append the spectrum mode from an XML element when present."""
-    spectrum_mode = get_spectrum_mode(elem, sl=sl)
-    if spectrum_mode is not None:
-        spectrum_modes.append(spectrum_mode)
-
-
-def get_spectrum_mode(elem: ty.Any, sl: str = "{http://psi.hupo.org/ms/mzml}") -> SpectrumMode | None:
-    """Return the spectrum mode encoded in imzML cvParams."""
-    if elem.find(f'{sl}cvParam[@accession="MS:1000127"]') is not None:
-        return SPECTRUM_MODE_CENTROID
-    if elem.find(f'{sl}cvParam[@accession="MS:1000128"]') is not None:
-        return SPECTRUM_MODE_PROFILE
-    return None
-
-
-def get_observed_mz_range(elem: ty.Any, sl: str = "{http://psi.hupo.org/ms/mzml}") -> MzRange | None:
-    """Return the per-spectrum observed m/z range when it is complete and valid."""
-    lowest_node = elem.find(f'{sl}cvParam[@accession="{LOWEST_OBSERVED_MZ_ACCESSION}"]')
-    highest_node = elem.find(f'{sl}cvParam[@accession="{HIGHEST_OBSERVED_MZ_ACCESSION}"]')
-    if lowest_node is None or highest_node is None:
-        return None
-    try:
-        mz_min = float(lowest_node.attrib["value"])
-        mz_max = float(highest_node.attrib["value"])
-    except (KeyError, TypeError, ValueError):
-        return None
-    if not np.isfinite(mz_min) or not np.isfinite(mz_max) or mz_min > mz_max:
-        return None
-    return mz_min, mz_max
-
-
-def resolve_observed_mz_range(spectrum_mz_ranges: list[MzRange | None]) -> tuple[float | None, float | None]:
-    """Return global XML observed m/z bounds only when every spectrum declares valid bounds."""
-    if not spectrum_mz_ranges or any(mz_range is None for mz_range in spectrum_mz_ranges):
-        return None, None
-    mz_ranges = ty.cast(list[MzRange], spectrum_mz_ranges)
-    return min(mz_range[0] for mz_range in mz_ranges), max(mz_range[1] for mz_range in mz_ranges)
-
-
-def resolve_spectrum_mode(spectrum_modes: list[SpectrumMode]) -> SpectrumMode | None:
-    """Return a single spectrum mode when all discovered spectra agree."""
-    if not spectrum_modes:
-        return None
-    modes = set(spectrum_modes)
-    if len(modes) == 1:
-        return spectrum_modes[0]
-    warn(
-        "Mixed centroid/profile spectrum modes found in imzML metadata; falling back to shape detection.",
-        stacklevel=2,
-    )
-    return None
-
-
-def fix_offsets(offsets):
-    """Fix errors introduced by incorrect signed 32bit integers when unsigned 64bit was appropriate."""
-
-    def _fix(offsets, index: int):
-        delta = 0
-        prev_value = float("nan")
-        for values in offsets:
-            value = values[index]
-            if value < 0 <= prev_value:
-                delta += 2**32
-            values[index] = value + delta
-            prev_value = value
-
-    # correct offsets
-    _fix(offsets, OffsetIndices.MZ_OFFSET)
-    _fix(offsets, OffsetIndices.INT_OFFSET)
-
-
-def assign_precision(int_group, mz_group, sl: str = "{http://psi.hupo.org/ms/mzml}"):
-    """Determine precision."""
-    valid_accession_strings = (
-        "MS:1000521",
-        "MS:1000523",
-        "IMS:1000141",
-        "IMS:1000142",
-        "MS:1000519",
-        "MS:1000522",
-    )
-    mz_precision = int_precision = None
-    for s in valid_accession_strings:
-        param = mz_group.find(f'{sl}cvParam[@accession="{s}"]')
-        if param is not None:
-            mz_precision = PRECISION_DICT[param.attrib["name"]]
-            break
-    for s in valid_accession_strings:
-        param = int_group.find(f'{sl}cvParam[@accession="{s}"]')
-        if param is not None:
-            int_precision = PRECISION_DICT[param.attrib["name"]]
-            break
-    if (mz_precision is None) or (int_precision is None):
-        raise RuntimeError(f"Unsupported number format: mz = {mz_precision}, int = {int_precision}")
-    return mz_precision, int_precision
-
-
-def process_spectrum(elem, mz_group_id, int_group_id, sl: str = "{http://psi.hupo.org/ms/mzml}"):
-    """Process spectrum."""
-    array_list_item = elem.find(f"{sl}binaryDataArrayList")
-    element_list = list(array_list_item)
-    mz_group, int_group = None, None
-    for element in element_list:
-        ref = element.find(f"{sl}referenceableParamGroupRef").attrib["ref"]
-        if ref == mz_group_id:
-            mz_group = element
-        elif ref == int_group_id:
-            int_group = element
-
-    mz_offset = int(get_cv_param(mz_group, "IMS:1000102"))
-    mz_length = int(get_cv_param(mz_group, "IMS:1000103"))
-    intensity_offset = int(get_cv_param(int_group, "IMS:1000102"))
-    intensity_length = int(get_cv_param(int_group, "IMS:1000103"))
-
-    scan_elem = elem.find(f"{sl}scanList/{sl}scan")
-    x = int(get_cv_param(scan_elem, "IMS:1000050"))
-    y = int(get_cv_param(scan_elem, "IMS:1000051"))
-    z = get_cv_param(scan_elem, "IMS:1000052")
-    z = int(z) if z is not None else 1
-    return [mz_offset, mz_length, intensity_offset, intensity_length, x, y, z]
-
-
-class OffsetIndices:
-    """Indices."""
-
-    MZ_OFFSET = 0
-    MZ_LENGTH = 1
-    INT_OFFSET = 2
-    INT_LENGTH = 3
-
-
-class CoordinateIndices:
-    """Coordinate indices."""
-
-    X = 0
-    Y = 1
-    Z = 2
-
-
-def choose_iterparse(parse_lib: str | None = None) -> ty.Callable:
-    """Choose iterparse."""
-    if parse_lib == "ElementTree" or (parse_lib is None and sys.platform == "win32"):
-        from xml.etree.ElementTree import iterparse
-    elif parse_lib == "lxml":
-        try:
-            from lxml.etree import iterparse
-        except ImportError:
-            from xml.etree.ElementTree import iterparse
-    else:
-        try:
-            from lxml.etree import iterparse
-        except ImportError:
-            from xml.etree.ElementTree import iterparse
-    return iterparse
-
-
-def read_icache(
-    path: Path,
-) -> tuple[str, str, np.ndarray, np.ndarray, float | None, float | None, SpectrumMode | None]:
-    """Read icache file into memory."""
-    with np.load(path) as f_ptr:
-        mz_precision = str(f_ptr["mz_precision"])
-        int_precision = str(f_ptr["int_precision"])
-        byte_offsets = f_ptr["byte_offsets"]
-        xyz_coordinates = f_ptr["xyz_coordinates"]
-        mz_min = _read_optional_float(f_ptr, "mz_min")
-        mz_max = _read_optional_float(f_ptr, "mz_max")
-        spectrum_mode = _read_optional_spectrum_mode(f_ptr)
-    return mz_precision, int_precision, byte_offsets, xyz_coordinates, mz_min, mz_max, spectrum_mode
-
-
-def _read_optional_float(f_ptr: ty.Any, key: str) -> float | None:
-    """Read an optional scalar float from an imzML cache."""
-    if key not in f_ptr.files:
-        return None
-    return float(np.asarray(f_ptr[key]).item())
-
-
-def _read_optional_spectrum_mode(f_ptr: ty.Any) -> SpectrumMode | None:
-    """Read an optional spectrum mode from an imzML cache."""
-    if "spectrum_mode" not in f_ptr.files:
-        return None
-    spectrum_mode = str(np.asarray(f_ptr["spectrum_mode"]).item())
-    if spectrum_mode in {SPECTRUM_MODE_CENTROID, SPECTRUM_MODE_PROFILE}:
-        return ty.cast(SpectrumMode, spectrum_mode)
-    return None
-
-
-def write_icache(obj: IMZMLReader, path: Path) -> None:
-    """Write icache file to disk so next time the imzML file is being opened, it will be much, much faster."""
-    optional_metadata: dict[str, float | str] = {}
-    if obj._mz_min is not None:
-        optional_metadata["mz_min"] = float(obj._mz_min)
-    if obj._mz_max is not None:
-        optional_metadata["mz_max"] = float(obj._mz_max)
-    if obj._spectrum_mode is not None:
-        optional_metadata["spectrum_mode"] = obj._spectrum_mode
-    np.savez(
-        path,
-        **obj._imzml_cache.to_cache(),
-        mz_precision=obj.mz_precision,
-        int_precision=obj.int_precision,
-        byte_offsets=obj.byte_offsets,
-        xyz_coordinates=obj.xyz_coordinates,
-        **optional_metadata,
-    )
-    npz_path = path.with_suffix(".icache.npz")  # need to include both extensions
-    # unfortunately, numpy automatically adds the .npz extension which might not be desirable, so we might as well
-    # rename it to the .icache
-    npz_path.replace(path)
+    """Read resolved centroid/profile metadata without reading binary arrays."""
+    return init_spectrum_metadata(path, parse_lib, sl)[0]
 
 
 def is_imzml(path: PathLike) -> bool:
@@ -1060,8 +801,8 @@ def is_imzml(path: PathLike) -> bool:
 
 
 @hook_impl
-def imzy_reader(path: PathLike, **kwargs) -> IMZMLReader | None:
-    """Return TDFReader if path is Bruker .d/tdf."""
+def imzy_reader(path: PathLike, reader_kwargs: dict[str, ty.Any], **kwargs: ty.Any) -> IMZMLReader | None:
+    """Return an imzML reader with the options explicitly forwarded by Pluggy."""
     if is_imzml(path):
-        return IMZMLReader(path, **kwargs)
+        return IMZMLReader(path, **(reader_kwargs | kwargs))
     return None

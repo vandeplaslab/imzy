@@ -19,7 +19,7 @@ Unsupported inputs raise an error. Vendor readers are available only on their [s
 ```python
 IMZMLReader(
     path, ibd_path=None, auto_profile=True, mz_ppm="auto", resolution=50_000,
-    mz_min=None, mz_max=None, parse_lib=None, *, backend="auto",
+    mz_min=None, mz_max=None, parse_lib=None, *, backend="auto", pixel_size=None, z_plane=None,
 )
 TSFReader(path, use_recalibrated_state=False, auto_profile=True, roi=None)
 TDFReader(
@@ -36,6 +36,12 @@ Each constructor returns its corresponding `BaseReader` subclass.
 `ibd_path` overrides the imzML binary-file location; otherwise the matching `.ibd` is used.
 `mz_min` / `mz_max` override imzML mass-range estimates. `parse_lib` selects the XML parser; leave it as `None`
 for automatic selection. `backend` accepts `"auto"`, `"rust"`, or `"python"`.
+`parse_lib` accepts only `None`, `"ElementTree"`, or `"lxml"`; an explicit lxml request requires it to be installed.
+`pixel_size=(x_um, y_um)` overrides physical pixel sizes with finite, positive lengths in um.
+Unknown sizes allow spectrum reads, but physical-size properties and physical coordinates raise `ValueError`
+until an override is supplied. Current unitless length terms retain the historical um interpretation.
+`z_plane` selects a normalized one-based z coordinate. All reader indices, spectra, tables, and exports then
+refer to that plane in original spectrum order. An absent plane raises `ValueError`.
 `resolution` and `mz_ppm` control centroid resampling; their defaults are estimates, not instrument calibration.
 `auto_profile` controls automatic centroid-to-profile conversion where the reader implements it.
 Bruker `roi=None` uses the reader's default region selection; an integer selects a reported ROI.
@@ -80,6 +86,7 @@ a different mass grid from individual spectra.
 | `n_pixels`, `pixels` | Acquired-pixel count and original pixel indices |
 | `image_shape` | `(height, width)` |
 | `xyz_coordinates` | `(n_pixels, 3)` coordinates in reader convention |
+| `source_coordinate_base` | imzML input x/y/z bases, each 0 or 1; absent z is `None` |
 | `x_coordinates`, `y_coordinates`, `z_coordinates` | Per-pixel coordinate vectors |
 | `mz_min`, `mz_max` | Reader mass-range bounds |
 | `is_centroid` | Whether the input is centroid data |
@@ -87,6 +94,9 @@ a different mass grid from individual spectra.
 | `x_pixel_size`, `y_pixel_size` | Physical pixel sizes where supplied by the input |
 
 Use reader reshape methods to account for coordinate origin and missing pixels.
+imzML reader coordinates are normalized to one-based values; cropped one-based acquisitions retain their offsets.
+The acquisition grid extent is retained when selecting a plane. Multiple z planes require `z_plane` for 2-D
+images and HDF5/Zarr centroid exports; full-acquisition spectra, tables, and imzML exports remain available.
 
 ## Normalization and extraction
 
@@ -199,13 +209,17 @@ from imzy.hookspec import hook_impl
 
 
 @hook_impl
-def imzy_reader(path: str | Path, **kwargs: Any) -> BaseReader | None:
+def imzy_reader(path: str | Path, reader_kwargs: dict[str, Any]) -> BaseReader | None:
     """Return a reader for this plugin's supported format."""
     if Path(path).suffix != ".yourformat":
         return None
     # Implement YourReader as a BaseReader subclass in your package.
-    return YourReader(path, **kwargs)
+    return YourReader(path, **reader_kwargs)
 ```
+
+Plugins that accept reader options must declare the named `reader_kwargs` argument. Pluggy forwards this
+mapping explicitly; a bare `**kwargs` parameter does not receive arbitrary reader options. Existing plugins
+that only need `path` can retain their current signature.
 
 ```toml
 [project.entry-points."imzy.plugins"]
