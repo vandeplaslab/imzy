@@ -48,7 +48,7 @@ class ImzyPluginManager(PluginManager):
 
     def get_reader(self, path: PathLike, **kwargs: ty.Any) -> BaseReader:
         """Get reader for the specified path."""
-        for reader in self.hook.imzy_reader(path=path, **kwargs):
+        for reader in self.hook.imzy_reader(path=path, reader_kwargs=kwargs):
             if reader is not None:
                 return reader
         raise NotImplementedError(f"Reader for dataset with specified path has not been implemented yet. (path={path})")

@@ -14,7 +14,7 @@ def create_sample(directory: Path) -> Path:
     """Write a two-by-two centroid dataset with three masses and known intensities."""
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / "sample.imzML"
-    with IMZMLWriter(path, spectrum_type="centroid", ibd_mode="processed") as writer:
+    with IMZMLWriter(path, pixel_size=(50.0, 50.0), spectrum_type="centroid", ibd_mode="processed") as writer:
         for index in range(4):
             intensities = np.array([1.0, 2.0, 3.0]) * (index + 1)
             writer.add_spectrum([100.0, 200.0, 300.0], intensities, (index % 2 + 1, index // 2 + 1))

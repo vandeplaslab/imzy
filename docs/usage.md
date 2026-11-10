@@ -80,6 +80,20 @@ with IMZMLReader("sample.imzML") as reader:
 An acquired pixel with no peak in the window contributes zero. imzML coordinates are one-based, while
 Bruker reader coordinates use a zero-based image origin. Let the reader handle placement.
 
+Zero-based imzML inputs are normalized to one-based reader coordinates. `source_coordinate_base` records
+the detected original bases, with `None` for an absent z axis. Cropped acquisitions keep their slide offsets.
+For a multi-plane acquisition, select a normalized z plane before extracting 2-D images or centroid stores:
+
+```python
+with IMZMLReader("volume.imzML", z_plane=2, pixel_size=(50.0, 50.0)) as reader:
+    image = reader.get_ion_image(200.0, ppm=10, silent=True)
+```
+
+The selected reader's spectra, pixel indices, tables, and exports all refer to that plane; the full acquisition
+grid extent is preserved. The `pixel_size` override is in um and is needed only when physical sizing cannot be
+determined. Unknown sizes warn but leave spectral access available. Declared length units are converted to um;
+current unitless length terms are assumed to be um. Legacy pixel areas are not interpreted as lengths.
+
 ## Bruker regions of interest
 
 ```python

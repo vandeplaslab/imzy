@@ -138,14 +138,14 @@ def test_initialization_reparses_each_uncached_sample(
         _ = reader.mz_min, reader.mz_max
     monkeypatch.chdir(tmp_path)
     calls = 0
-    original = _imzml.init_metadata
+    original = _imzml.parse_metadata
 
-    def counted(*args: object, **kwargs: object) -> tuple:
+    def counted(*args: object, **kwargs: object) -> object:
         nonlocal calls
         calls += 1
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(_imzml, "init_metadata", counted)
+    monkeypatch.setattr(_imzml, "parse_metadata", counted)
 
     def unexpected_upgrade(*args: object, **kwargs: object) -> None:
         raise AssertionError("A complete metadata cache must not reparse XML.")

@@ -9,6 +9,7 @@ import os
 import typing as ty
 import weakref
 from pathlib import Path
+from xml.etree import ElementTree as ET
 
 import numpy as np
 import pytest
@@ -16,6 +17,8 @@ from ims_utils.spectrum import get_mzs_for_tol
 
 from imzy import IMZMLReader
 from imzy._readers.imzml._imzml import DTYPE_DICT
+
+from .imzml_fixtures import NS, dataset, save
 
 _HAS_RUST = importlib.util.find_spec("imzy._imzml_rust") is not None
 if os.environ.get("IMZY_REQUIRE_RUST") == "1":
@@ -39,45 +42,22 @@ def _dataset(
     unaligned: bool = False,
     mode: str = "centroid",
 ) -> Path:
-    """Write independent little-endian arrays and an existing-format metadata cache."""
-    path = directory / "data.imzML"
-    path.write_text("<mzML/>")  # Complete cached metadata avoids XML parsing in these binary tests.
-    offsets = []
-    with path.with_suffix(".ibd").open("wb") as stream:
-        stream.write(bytes(16) + (b"x" if unaligned else b""))
-        mz_offset = stream.tell()
-        for index, (mz, intensity) in enumerate(spectra):
-            if not shared or index == 0:
-                mz_offset = stream.tell()
-                stream.write(mz.astype(DTYPE_DICT[mz_code]).tobytes())
-            int_offset = stream.tell()
-            stream.write(intensity.astype(DTYPE_DICT[int_code]).tobytes())
-            offsets.append((mz_offset, len(mz), int_offset, len(intensity)))
-    with path.with_suffix(".icache").open("wb") as stream:
-        np.savez(
-            stream,
-            px_max_x=len(spectra) + 1,
-            px_max_y=1,
-            px_max_z=1,
-            px_size_x=1.0,
-            px_size_y=1.0,
-            mz_precision=mz_code,
-            int_precision=int_code,
-            byte_offsets=np.asarray(offsets, dtype=np.int64).reshape(-1, 4),
-            xyz_coordinates=np.asarray([(i + 1, 1, 1) for i in range(len(spectra))], dtype=np.int64).reshape(-1, 3),
-            mz_min=100.0,
-            mz_max=104.0,
-            spectrum_mode=mode,
-        )
+    """Write independent XML/binary arrays and prime a validated metadata cache."""
+    path = dataset(directory, spectra, mz_code, int_code, shared=shared, unaligned=unaligned, mode=mode)
+    with IMZMLReader(path, backend="python"):
+        pass
     return path
 
 
 def _edit_cache(path: Path, **updates: ty.Any) -> None:
-    with np.load(path.with_suffix(".icache")) as cache:
-        values = {name: cache[name] for name in cache.files}
-    values.update(updates)
-    with path.with_suffix(".icache").open("wb") as stream:
-        np.savez(stream, **values)
+    """Apply deliberately invalid offsets to the source XML, invalidating its cache."""
+    offsets = updates["byte_offsets"]
+    root = ET.parse(path).getroot()
+    for spectrum, row in zip(root.findall(f".//{NS}spectrum"), offsets, strict=True):
+        for i, array in enumerate(spectrum.findall(f"{NS}binaryDataArrayList/{NS}binaryDataArray")):
+            array.find(f'{NS}cvParam[@accession="IMS:1000102"]').set("value", str(row[i * 2]))
+            array.find(f'{NS}cvParam[@accession="IMS:1000103"]').set("value", str(row[i * 2 + 1]))
+    save(path, root)
 
 
 @pytest.mark.parametrize("mz_code", list(DTYPE_DICT))

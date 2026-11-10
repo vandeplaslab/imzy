@@ -45,10 +45,12 @@ ACCESSION_FIX_MAPPING = {
 }
 
 
-def convert_xml_value(dtype: str, value: ty.Any) -> ty.Any:
+def convert_xml_value(dtype: str | None, value: ty.Any) -> ty.Any:
     """Convert a value from an XML attribute to the expected datatype."""
     try:
         if dtype is not None:
+            if value is None or value == "":
+                return None
             return DTYPE_MAPPING[dtype](value)
         elif value is None or value == "":
             # Many cv_params are flags and have either a None or empty-string value.

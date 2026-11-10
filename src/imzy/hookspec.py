@@ -15,7 +15,7 @@ hook_impl: ty.Callable = HookimplMarker("imzy")
 
 
 @hook_spec(firstresult=False)
-def imzy_reader(path: PathLike, **kwargs: ty.Any) -> BaseReader | None:
+def imzy_reader(path: PathLike, reader_kwargs: dict[str, ty.Any], **kwargs: ty.Any) -> BaseReader | None:
     """Hook specification for file reader.
 
     This function should return instance of initialized reader if the path is supported by the reader. You should
@@ -31,6 +31,9 @@ def imzy_reader(path: PathLike, **kwargs: ty.Any) -> BaseReader | None:
     ----------
     path : str
         Path to the dataset.
+    reader_kwargs : dict
+        Reader options forwarded explicitly by Pluggy. Implementations that need
+        options should declare this named argument; Pluggy does not forward **kwargs.
     kwargs : dict
         Dictionary of extra keyword-arguments that should be passed to the reader. For definition of what arguments are
         supported, please see individual readers.

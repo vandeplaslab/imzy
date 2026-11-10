@@ -43,6 +43,7 @@ def generate(directory: Path, layout: str, pixels: int, points: int = POINTS) ->
     continuous = layout == "continuous_profile"
     with IMZMLWriter(
         path,
+        pixel_size=(50.0, 50.0),
         spectrum_type="profile" if continuous else "centroid",
         ibd_mode="continuous" if continuous else "processed",
     ) as writer:

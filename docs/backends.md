@@ -34,6 +34,18 @@ the reader closes. Release those references before replacing the dataset.
 ## Supported arrays and parallelism
 
 Supported imzML arrays are uncompressed, little-endian float32, float64, int32, and int64.
+Each array's direct terms and referenced groups are resolved before reading. Both backends require uniform
+m/z and intensity precisions across the acquisition. Mixed precision, inconsistent encoded lengths, overlapping
+arrays, and invalid coordinates raise contextual `ValueError`s. Identical shared arrays of the same kind and
+precision are permitted. Auxiliary arrays are checked for valid spans but are not exposed as mobility data.
+When no effective centroid/profile declaration exists, the reader retains its spectrum-shape heuristic.
+XML/binary UUID disagreements produce a warning naming both files and UUIDs; readable vendor exports remain usable.
+
+Metadata caches are versioned and replaced atomically after validation. Legacy, corrupt, or stale caches rebuild
+automatically, using resolved paths, sizes, and nanosecond modification times for both source files. This is not
+a content checksum. Read-only datasets remain usable without a writable cache. Overrides and plane selections
+never replace the complete acquisition metadata in the cache.
+
 Ion extraction requires ascending m/z arrays. Rust accelerates spectrum access/iteration, TIC calculation,
 and ion-image extraction. Rayon parallelizes bulk extraction. Set the worker count before starting Python:
 

@@ -29,6 +29,7 @@ def generate(directory: Path, pixels: int, points: int, continuous: bool) -> Pat
     axis = np.linspace(100.0, 1000.0, points)
     with IMZMLWriter(
         path,
+        pixel_size=(50.0, 50.0),
         spectrum_type="profile" if continuous else "centroid",
         ibd_mode="continuous" if continuous else "processed",
     ) as writer:

@@ -738,8 +738,14 @@ class IMZMLWriter:
         _cv(scan_settings, "IMS", "IMS:1000045", "max dimension y", value=str(y_size))
         if self.pixel_size is not None:
             x_pixel_size, y_pixel_size = self.pixel_size
-            _cv(scan_settings, "IMS", "IMS:1000046", "pixel size x", value=_format_float(x_pixel_size))
-            _cv(scan_settings, "IMS", "IMS:1000047", "pixel size y", value=_format_float(y_pixel_size))
+            _cv(
+                scan_settings, "IMS", "IMS:1000046", "pixel size x", value=_format_float(x_pixel_size),
+                unitCvRef="UO", unitAccession="UO:0000017", unitName="micrometer",
+            )
+            _cv(
+                scan_settings, "IMS", "IMS:1000047", "pixel size y", value=_format_float(y_pixel_size),
+                unitCvRef="UO", unitAccession="UO:0000017", unitName="micrometer",
+            )
 
     def _add_instrument_configuration(self, root: ET.Element) -> None:
         _sub(_sub(root, "instrumentConfigurationList", count="1"), "instrumentConfiguration", id="IC1")
@@ -774,7 +780,7 @@ class IMZMLWriter:
     def _image_dimensions(self) -> tuple[int, int]:
         if self.image_shape is not None:
             y_size, x_size = self.image_shape
-            return int(x_size), int(y_size)
+            return max(int(x_size), self._max_coordinate(0)), max(int(y_size), self._max_coordinate(1))
         return self._max_coordinate(0), self._max_coordinate(1)
 
 

@@ -499,7 +499,10 @@ class BaseReader:
                 "x_coordinates": self.x_coordinates,
                 "y_coordinates": self.y_coordinates,
                 "image_shape": np.asarray(self.image_shape),
-                "pixel_size": self.pixel_size,
+                "pixel_size": (
+                    self.x_pixel_size if self.x_pixel_size == self.y_pixel_size
+                    else (self.x_pixel_size, self.y_pixel_size)
+                ),
             },
             reader_kwargs=reader_kwargs,
         )
@@ -537,8 +540,11 @@ class BaseReader:
         if not hdf_path.suffix == ".h5":
             hdf_path = hdf_path.with_suffix(".h5")
         if not hdf_path.exists():
-            hdf_path = create_normalizations_hdf5(self.path, hdf_path)
-            hdf_path = extract_normalizations_hdf5(input_dir=self.path, hdf_path=hdf_path, silent=silent)
+            reader_kwargs = self._get_reader_kwargs()
+            hdf_path = create_normalizations_hdf5(self.path, hdf_path, reader_kwargs=reader_kwargs)
+            hdf_path = extract_normalizations_hdf5(
+                input_dir=self.path, hdf_path=hdf_path, silent=silent, reader_kwargs=reader_kwargs
+            )
         return hdf_path
 
     def spectra_iter(
