@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import builtins
+import json
 import typing as ty
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -518,14 +519,86 @@ def test_concurrent_atomic_cache_replacements(tmp_path: Path) -> None:
     assert not list(tmp_path.glob(".data.icache.*"))
 
 
-def test_source_path_is_part_of_cache_fingerprint(tmp_path: Path) -> None:
-    first, second = dataset(tmp_path / "first"), dataset(tmp_path / "second")
+@pytest.mark.parametrize("winerror", [5, 32, 33])
+def test_windows_cache_replacement_retries(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, winerror: int) -> None:
+    path = dataset(tmp_path)
+    with IMZMLReader(path) as reader:
+        metadata = reader._source_metadata
+        source_fingerprint = reader._source_fingerprint
+    cache_path = path.with_suffix(".icache")
+    replace = _cache.os.replace
+    attempts = 0
+    delays: list[float] = []
+
+    def contended_replace(source: Path, destination: Path) -> None:
+        nonlocal attempts
+        attempts += 1
+        if attempts <= 2:
+            error = PermissionError("Windows cache replacement contention")
+            error.winerror = winerror
+            raise error
+        replace(source, destination)
+
+    monkeypatch.setattr(_cache.os, "replace", contended_replace)
+    monkeypatch.setattr(_cache, "sleep", delays.append)
+    _cache.save_cache(cache_path, metadata, source_fingerprint)
+    assert attempts == 3
+    assert len(delays) == 2 and all(delay > 0 for delay in delays)
+    cached = _cache.load_cache(cache_path, source_fingerprint)
+    assert cached is not None
+    np.testing.assert_array_equal(cached.offsets, metadata.offsets)
+    assert not list(tmp_path.glob(".data.icache.*"))
+
+
+@pytest.mark.parametrize("winerror", [None, 5, 32, 33, 19])
+def test_cache_replacement_failure_is_bounded(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    winerror: int | None,
+) -> None:
+    path = dataset(tmp_path)
+    with IMZMLReader(path) as reader:
+        metadata = reader._source_metadata
+        source_fingerprint = reader._source_fingerprint
+    cache_path = path.with_suffix(".icache")
+    previous = cache_path.read_bytes()
+    attempts = 0
+    delays: list[float] = []
+
+    def denied_replace(source: Path, destination: Path) -> None:
+        nonlocal attempts
+        attempts += 1
+        error = PermissionError("Cache replacement denied")
+        if winerror is not None:
+            error.winerror = winerror
+        raise error
+
+    monkeypatch.setattr(_cache.os, "replace", denied_replace)
+    monkeypatch.setattr(_cache, "sleep", delays.append)
+    with pytest.raises(PermissionError, match="Cache replacement denied"):
+        _cache.save_cache(cache_path, metadata, source_fingerprint)
+    if winerror in (5, 32, 33):
+        assert 1 < attempts <= 10
+        assert len(delays) == attempts - 1
+        assert 0 < sum(delays) < 1
+    else:
+        assert attempts == 1
+        assert delays == []
+    assert cache_path.read_bytes() == previous
+    assert not list(tmp_path.glob(".data.icache.*"))
+
+
+@pytest.mark.parametrize("directory", ["second", r"second\acquisition"])
+def test_source_path_is_part_of_cache_fingerprint(tmp_path: Path, directory: str) -> None:
+    first, second = dataset(tmp_path / "first"), dataset(tmp_path / directory)
     IMZMLReader(first).close()
     second.with_suffix(".icache").write_bytes(first.with_suffix(".icache").read_bytes())
     with IMZMLReader(second) as reader:
         assert reader.n_pixels == 2
     with np.load(second.with_suffix(".icache")) as cache:
-        assert str(second.resolve()) in str(cache["source_fingerprint"].item())
+        sources = json.loads(str(cache["source_fingerprint"].item()))
+        assert sources[0][0] == str(second.resolve())
+        assert sources[1][0] == str(second.with_suffix(".ibd").resolve())
 
 
 def test_binary_filename_resolution(tmp_path: Path) -> None:

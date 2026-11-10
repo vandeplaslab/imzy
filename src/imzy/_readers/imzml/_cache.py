@@ -7,6 +7,7 @@ import os
 import tempfile
 import typing as ty
 from pathlib import Path
+from time import sleep
 from zipfile import BadZipFile
 
 import numpy as np
@@ -95,7 +96,7 @@ def _valid_physical_metadata(metadata: Metadata) -> bool:
 
 
 def save_cache(cache_path: Path, metadata: Metadata, source_fingerprint: str) -> None:
-    """Atomically replace a complete acquisition cache using a unique temporary file."""
+    """Atomically replace a cache, retrying transient Windows replacement errors."""
     header = {
         "mz_precision": metadata.mz_precision,
         "int_precision": metadata.int_precision,
@@ -126,7 +127,17 @@ def save_cache(cache_path: Path, metadata: Metadata, source_fingerprint: str) ->
                 mz_max=np.nan if metadata.mz_max is None else metadata.mz_max,
                 spectrum_mode=metadata.mode or "",
             )
-        os.replace(temp_path, cache_path)
+        attempts = 6
+        for attempt in range(attempts):
+            try:
+                os.replace(temp_path, cache_path)
+                break
+            except PermissionError as error:
+                # Windows can briefly deny replacement while another writer or
+                # reader holds the destination. Keep the old cache until success.
+                if getattr(error, "winerror", None) not in {5, 32, 33} or attempt == attempts - 1:
+                    raise
+                sleep(0.01 * 2**attempt)
     finally:
         if temp_path is not None:
             temp_path.unlink(missing_ok=True)
