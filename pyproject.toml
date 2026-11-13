@@ -95,7 +95,7 @@ dependencies = [
   "tqdm",
   "natsort",
   "pluggy",
-  "koyo>=0.3.6",
+  "koyo>=0.3.7",
   "ims-utils>=0.2.0",
   "yoki5>=0.1.3",
 ]
