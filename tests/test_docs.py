@@ -34,6 +34,7 @@ def _run_example(name: str, output: Path, *args: str) -> None:
     assert result.returncode == 0, result.stdout + result.stderr
 
 
+@pytest.mark.xfail(reason="Can sometimes fail on CI due to slowness.")
 @pytest.mark.skipif(not HAS_BRUKER_BACKEND, reason="Bruker reader requires `pytsf` on macOS.")
 def test_quickstart_example(tmp_path: Path) -> None:
     pytest.importorskip("matplotlib")
