@@ -106,3 +106,51 @@ roi_reader = get_reader("sample.d", roi=0)  # choose an ID reported by reader.ro
 
 ROI selection applies to Bruker TSF/TDF/NeoFlex. The selected reader exposes the pixels for that region.
 These examples require a supported vendor platform and real input data.
+
+## TOFWERK LA-ICP-TOF
+
+`TofwerkReader` reads TOFWERK TofDAQ `.h5` files from laser-ablation imaging (e.g. icpTOF). It needs `h5py`
+(`pip install "imzy[hdf5]"`). `get_reader()` picks it when the file has the `ImageData` spot table and `PeakData`.
+
+```python
+from imzy import get_reader
+
+reader = get_reader("LA_Image.h5")  # sample scans, integrated peaks
+print(reader.image_shape, reader.pixel_size, reader.peak_labels[:3])  # e.g. ['[6Li]+', '[7Li]+', '[9Be]+']
+cu = reader.get_ion_image(62.93, tol=0.1, silent=True)
+
+standards = get_reader("LA_Image.h5", roi=1)  # reference standard scans
+profile = get_reader("LA_Image.h5", mode="profile")  # full TOF spectra on the mass axis
+```
+
+- Each valid laser spot becomes one pixel. Stage coordinates (um) are snapped onto a grid with the spot spacing
+  as pixel size; x and y follow the stage axes. `stage_coordinates` keeps the original positions.
+- `roi=0` (default) loads the sample scans and `roi=1` the reference standards; `reader.rois` lists what is present.
+- `mode="peaks"` (default) returns one intensity per entry of the peak table (`is_centroid` is `True`).
+  `mode="profile"` returns the full spectra, which are much larger and slower to read.
+- Fitted peak intensities are returned as stored and can be slightly negative.
+
+## PHI ToF-SIMS
+
+`PhiReader` reads PHI SmartSoft-TOF `.raw` files from nanoTOF ToF-SIMS imaging. Unlike Waters `.raw` (a directory),
+these are single files starting with `SOFH`; `get_reader()` picks `PhiReader` for them. No vendor library is needed.
+The parser follows [Thyra](https://github.com/M4i-Imaging-Mass-Spectrometry/thyra).
+
+```python
+from imzy import get_reader
+
+reader = get_reader("sample.raw")
+print(reader.image_shape, reader.pixel_size, reader.calibration_source)
+tic = reader.reshape(reader.get_tic())
+image = reader.get_ion_image(27.0, tol=0.05)
+```
+
+- The file stores individual ion events, so they are binned onto the detector time channels when the reader is
+  created. This reads the whole file once and keeps the sparse spectra in memory.
+- Every pixel of the square raster (times the mosaic tiles) is a pixel of the reader; pixels without ions return
+  empty spectra. Spectra hold the m/z of the occupied channels and their ion counts summed over all frames
+  (`is_centroid` is `True`). `mz_axis` and `tof_axis` give the full channel grid.
+- A recalibration appended to the file is used by default; pass `use_appended_calibration=False` to use the
+  acquisition header calibration instead.
+- The pixel size is `Raster Size (um) / ImagePixels` from the header; pass `pixel_size=` to override it.
+- `dropped_events` reports how many events were invalid, outside the raster or outside the mass range.

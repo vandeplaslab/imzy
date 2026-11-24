@@ -30,6 +30,8 @@ NeoFlexReader(path, use_recalibrated_state=False, auto_profile=True, resolution=
 BAFReader(path, use_recalibrated_state=True, mode="profile", roi=None)
 RapiflexReader(path, roi=None)
 WatersReader(path, auto_profile=True, mz_ppm="auto", resolution="auto", enable_ion_mobility=True)
+TofwerkReader(path, auto_profile=True, roi=0, mode="peaks")
+PhiReader(path, auto_profile=True, use_appended_calibration=True, pixel_size=None)
 ```
 
 Each constructor returns its corresponding `BaseReader` subclass.
@@ -48,6 +50,10 @@ Bruker `roi=None` uses the reader's default region selection; an integer selects
 `use_recalibrated_state` requests the vendor recalibration state. TDF pressure compensation uses the
 `PressureStrategy` enum in `imzy._readers.bruker._tdf` and defaults to no compensation.
 Waters `enable_ion_mobility` defaults to enabled.
+TOFWERK `roi` selects the scan sample type (0 = sample, 1 = reference standards) and `mode` is `"peaks"`
+or `"profile"`; see [TOFWERK LA-ICP-TOF](usage.md#tofwerk-la-icp-tof).
+PHI `use_appended_calibration` prefers a recalibration appended to the file over the header calibration and
+`pixel_size` overrides the header pixel size; see [PHI ToF-SIMS](usage.md#phi-tof-sims).
 BAF `mode` selects `"profile"` or `"centroid"` (line) spectra; on first use `baf2sql` writes the
 `analysis.sqlite` cache into the `.d` directory. rapifleX spectra share a linear m/z axis between the
 `Mass Start` and `Mass End` values of the `_info.txt` file.

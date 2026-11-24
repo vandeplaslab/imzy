@@ -18,7 +18,9 @@ from imzy._readers.bruker import (
     is_tsf,
 )
 from imzy._readers.imzml import IMZMLReader
+from imzy._readers.phi import PhiReader
 from imzy._readers.scils import SCiLSReader
+from imzy._readers.tofwerk import TofwerkReader
 
 if IS_WIN:
     from imzy._readers.waters import WatersReader, is_waters
@@ -31,10 +33,12 @@ __all__ = (
     "BaseReader",
     "IMZMLReader",
     "NeoFlexReader",
+    "PhiReader",
     "RapiflexReader",
     "SCiLSReader",
     "TDFReader",
     "TSFReader",
+    "TofwerkReader",
     "WatersReader",
     "get_reader",
 )

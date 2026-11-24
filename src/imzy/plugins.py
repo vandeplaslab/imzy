@@ -11,7 +11,9 @@ from pluggy import PluginManager
 from imzy import hookspec
 from imzy._readers.bruker import HAS_BAF_BACKEND, _baf, _neoflex, _rapiflex, _tdf, _tsf
 from imzy._readers.imzml import _imzml
+from imzy._readers.phi import _phi
 from imzy._readers.scils import _scils
+from imzy._readers.tofwerk import _tofwerk
 
 if IS_WIN:
     from imzy._readers.waters import _raw
@@ -32,6 +34,8 @@ class ImzyPluginManager(PluginManager):
         # register own plugins
         self.register(_imzml)
         self.register(_scils)
+        self.register(_tofwerk)
+        self.register(_phi)
         if _tdf is not None:
             self.register(_tdf)
         if _tsf is not None:

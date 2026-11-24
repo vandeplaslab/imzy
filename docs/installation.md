@@ -14,7 +14,7 @@ python -m pip install imzy
 
 | Extra | Install | Purpose |
 | --- | --- | --- |
-| HDF5 | `pip install "imzy[hdf5]"` | Export and read HDF5 centroid/normalization stores |
+| HDF5 | `pip install "imzy[hdf5]"` | Export and read HDF5 centroid/normalization stores; read TOFWERK files |
 | Zarr | `pip install "imzy[zarr]"` | Export and read Zarr centroid stores |
 | Plotting | `pip install "imzy[plot]"` | Plot examples with Matplotlib |
 | All | `pip install "imzy[all]"` | All features supported on your Python version |
@@ -31,6 +31,8 @@ extras omit Zarr. You can combine extras, for example `pip install "imzy[hdf5,pl
 | Bruker BAF (`.d` with `analysis.baf` + `*peaks.sqlite`) | Yes | No | Yes |
 | Bruker rapifleX (folder with `.dat`, `_info.txt`, `_poslog.txt`) | Yes | Yes | Yes |
 | Waters MassLynx (`.raw`) | Yes | No | No |
+| TOFWERK TofDAQ LA-ICP-TOF (`.h5` with `ImageData`) | With `h5py` | With `h5py` | With `h5py` |
+| PHI SmartSoft-TOF ToF-SIMS (`.raw` file) | Yes | Yes | Yes |
 
 Vendor formats depend on their native SDKs. Use imzML for the portable examples.
 Linux wheels target `manylinux_2_28` (glibc 2.28 or newer), because the bundled Bruker BAF library needs it.
