@@ -206,3 +206,113 @@ def write_synthetic_scils(
     conn.commit()
     conn.close()
     return SyntheticSCiLS(sbd_path, slx_path, dense, mz_axis, x, y, rasters, norm_values, norm_targets, spectra_mz)
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# TOFWERK synthetic data
+# ---------------------------------------------------------------------------------------------------------------------
+@dataclass
+class SyntheticTofwerk:
+    """Synthetic TOFWERK TofDAQ imaging file together with the ground truth it was generated from."""
+
+    path: Path
+    peaks: np.ndarray  # (writes, bufs, 1, n_peaks)
+    tof: np.ndarray  # (writes, bufs, 1, n_samples)
+    masses: np.ndarray
+    mass_axis: np.ndarray
+    labels: list[str]
+    write_bufs: dict[int, list[tuple[int, int]]]  # roi -> (write, buf) of each valid spot, in pixel order
+    xy: dict[int, list[tuple[int, int]]]  # roi -> expected (x, y) grid position of each valid spot
+
+
+def write_synthetic_tofwerk(
+    directory: Path, name: str = "synthetic.h5", duplicate: bool = False, userblock: bool = False
+) -> SyntheticTofwerk:
+    """Write a small TofDAQ-like file with 2 sample lines, 1 reference line and one invalid spot.
+
+    Layout of `ImageData/SpotData/Data` (the reference line is stored first to exercise scan offsets):
+    - reference line: 3 spots along x at y=900.3 -> writes/bufs (2, 0..2)
+    - sample line 0: x=100.5, y=200.2, 220.2, 240.2 -> (0, 1), (0, 2), (0, 3)
+    - sample line 1: x=120.5, same y -> (1, 0), (1, 1), (1, 2); the last spot is invalid
+    """
+    import h5py
+
+    rng = np.random.default_rng(42)
+    n_writes, n_bufs = 3, 4
+    masses = np.array([10.0, 20.0, 30.0, 40.0])
+    labels = ["[10A]+", "[20B]+", "[30C]+", "[40D]+"]
+    mass_axis = np.linspace(5.0, 45.0, 9)
+    peaks = rng.normal(5, 3, size=(n_writes, n_bufs, 1, len(masses))).astype(np.float32)
+    tof = rng.normal(5, 3, size=(n_writes, n_bufs, 1, len(mass_axis))).astype(np.float32)
+
+    line1_x = 100.5 if duplicate else 120.5
+    spots = np.array(
+        [
+            # valid, x, y, z, write, buf
+            [1, 5000.3, 900.3, 10.0, 2, 0],
+            [1, 5020.3, 900.3, 10.0, 2, 1],
+            [1, 5040.3, 900.3, 10.0, 2, 2],
+            [1, 100.5, 200.2, 10.0, 0, 1],
+            [1, 100.5, 220.2, 10.0, 0, 2],
+            [1, 100.5, 240.2, 10.0, 0, 3],
+            [1, line1_x, 200.2, 10.0, 1, 0],
+            [1, line1_x, 220.2, 10.0, 1, 1],
+            [0, line1_x, 240.2, 10.0, -1, -1],
+        ],
+        dtype=np.float64,
+    )
+    scans = np.array(
+        [
+            # scan type, sample type, mode, offset, n spots, layer
+            [0, 1, 0, 0, 3, 0],
+            [0, 0, 0, 3, 3, 0],
+            [0, 0, 0, 6, 3, 0],
+        ],
+        dtype=np.float64,
+    )
+    peak_table = np.zeros(
+        len(masses),
+        dtype=[
+            ("label", "S64"),
+            ("mass", "<f4"),
+            ("lower integration limit", "<f4"),
+            ("upper integration limit", "<f4"),
+        ],
+    )
+    peak_table["label"] = [label.encode() for label in labels]
+    peak_table["mass"] = masses
+    peak_table["lower integration limit"] = masses - 0.5
+    peak_table["upper integration limit"] = masses + 0.5
+
+    path = Path(directory) / name
+    # TofDAQ files start with a user block, which moves the HDF5 signature away from the start of the file
+    with h5py.File(path, "w", userblock_size=512 if userblock else 0) as f:
+        f.attrs["TofDAQ Version"] = np.array([1.99])
+        f.attrs["IonMode"] = np.bytes_(b"positive")
+        image = f.create_group("ImageData")
+        image.attrs["SpotSpacing"] = np.array([20.0])
+        image.attrs["SampleName"] = np.bytes_(b"synthetic")
+        scan_group = image.create_group("ScanData")
+        scan_group.create_dataset("Data", data=scans)
+        for i, scan_name in enumerate(["STD", "Line0", "Line1"]):
+            scan_group.attrs[f"ScanName{i:05d}"] = np.bytes_(scan_name.encode())
+        image.create_group("SpotData").create_dataset("Data", data=spots)
+        f.create_group("PeakData").create_dataset("PeakData", data=peaks)
+        f["PeakData"].create_dataset("PeakTable", data=peak_table)
+        full = f.create_group("FullSpectra")
+        full.create_dataset("TofData", data=tof)
+        full.create_dataset("MassAxis", data=mass_axis.astype(np.float32))
+    if userblock:
+        with open(path, "r+b") as f:
+            f.write(b"=" * 512)
+
+    return SyntheticTofwerk(
+        path=path,
+        peaks=peaks,
+        tof=tof,
+        masses=masses,
+        mass_axis=mass_axis.astype(np.float32).astype(np.float64),
+        labels=labels,
+        write_bufs={0: [(0, 1), (0, 2), (0, 3), (1, 0), (1, 1)], 1: [(2, 0), (2, 1), (2, 2)]},
+        xy={0: [(0, 0), (0, 1), (0, 2), (1, 0), (1, 1)], 1: [(0, 0), (1, 0), (2, 0)]},
+    )

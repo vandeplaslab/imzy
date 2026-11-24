@@ -53,6 +53,7 @@ __all__ = (
     "SkippedSpectrumWarning",
     "TDFReader",
     "TSFReader",
+    "TofwerkReader",
     "WatersReader",
     "ZarrCentroidsStore",
     "get_normalizations",
@@ -74,6 +75,7 @@ _LAZY_IMPORTS = {
     "SCiLSReader": ("imzy._readers", "SCiLSReader"),
     "TDFReader": ("imzy._readers", "TDFReader"),
     "TSFReader": ("imzy._readers", "TSFReader"),
+    "TofwerkReader": ("imzy._readers", "TofwerkReader"),
     "WatersReader": ("imzy._readers", "WatersReader"),
     "get_reader": ("imzy._readers", "get_reader"),
     # Normalizations
@@ -118,6 +120,7 @@ if ty.TYPE_CHECKING:
         RapiflexReader,
         SCiLSReader,
         TDFReader,
+        TofwerkReader,
         TSFReader,
         WatersReader,
         get_reader,

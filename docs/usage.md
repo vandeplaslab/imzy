@@ -106,3 +106,26 @@ roi_reader = get_reader("sample.d", roi=0)  # choose an ID reported by reader.ro
 
 ROI selection applies to Bruker TSF/TDF/NeoFlex. The selected reader exposes the pixels for that region.
 These examples require a supported vendor platform and real input data.
+
+## TOFWERK LA-ICP-TOF
+
+`TofwerkReader` reads TOFWERK TofDAQ `.h5` files from laser-ablation imaging (e.g. icpTOF). It needs `h5py`
+(`pip install "imzy[hdf5]"`). `get_reader()` picks it when the file has the `ImageData` spot table and `PeakData`.
+
+```python
+from imzy import get_reader
+
+reader = get_reader("LA_Image.h5")  # sample scans, integrated peaks
+print(reader.image_shape, reader.pixel_size, reader.peak_labels[:3])  # e.g. ['[6Li]+', '[7Li]+', '[9Be]+']
+cu = reader.get_ion_image(62.93, tol=0.1, silent=True)
+
+standards = get_reader("LA_Image.h5", roi=1)  # reference standard scans
+profile = get_reader("LA_Image.h5", mode="profile")  # full TOF spectra on the mass axis
+```
+
+- Each valid laser spot becomes one pixel. Stage coordinates (um) are snapped onto a grid with the spot spacing
+  as pixel size; x and y follow the stage axes. `stage_coordinates` keeps the original positions.
+- `roi=0` (default) loads the sample scans and `roi=1` the reference standards; `reader.rois` lists what is present.
+- `mode="peaks"` (default) returns one intensity per entry of the peak table (`is_centroid` is `True`).
+  `mode="profile"` returns the full spectra, which are much larger and slower to read.
+- Fitted peak intensities are returned as stored and can be slightly negative.
