@@ -129,3 +129,28 @@ profile = get_reader("LA_Image.h5", mode="profile")  # full TOF spectra on the m
 - `mode="peaks"` (default) returns one intensity per entry of the peak table (`is_centroid` is `True`).
   `mode="profile"` returns the full spectra, which are much larger and slower to read.
 - Fitted peak intensities are returned as stored and can be slightly negative.
+
+## PHI ToF-SIMS
+
+`PhiReader` reads PHI SmartSoft-TOF `.raw` files from nanoTOF ToF-SIMS imaging. Unlike Waters `.raw` (a directory),
+these are single files starting with `SOFH`; `get_reader()` picks `PhiReader` for them. No vendor library is needed.
+The parser follows [Thyra](https://github.com/M4i-Imaging-Mass-Spectrometry/thyra).
+
+```python
+from imzy import get_reader
+
+reader = get_reader("sample.raw")
+print(reader.image_shape, reader.pixel_size, reader.calibration_source)
+tic = reader.reshape(reader.get_tic())
+image = reader.get_ion_image(27.0, tol=0.05)
+```
+
+- The file stores individual ion events, so they are binned onto the detector time channels when the reader is
+  created. This reads the whole file once and keeps the sparse spectra in memory.
+- Every pixel of the square raster (times the mosaic tiles) is a pixel of the reader; pixels without ions return
+  empty spectra. Spectra hold the m/z of the occupied channels and their ion counts summed over all frames
+  (`is_centroid` is `True`). `mz_axis` and `tof_axis` give the full channel grid.
+- A recalibration appended to the file is used by default; pass `use_appended_calibration=False` to use the
+  acquisition header calibration instead.
+- The pixel size is `Raster Size (um) / ImagePixels` from the header; pass `pixel_size=` to override it.
+- `dropped_events` reports how many events were invalid, outside the raster or outside the mass range.

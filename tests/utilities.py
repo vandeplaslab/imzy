@@ -316,3 +316,148 @@ def write_synthetic_tofwerk(
         write_bufs={0: [(0, 1), (0, 2), (0, 3), (1, 0), (1, 1)], 1: [(2, 0), (2, 1), (2, 2)]},
         xy={0: [(0, 0), (0, 1), (0, 2), (1, 0), (1, 1)], 1: [(0, 0), (1, 0), (2, 0)]},
     )
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# PHI SmartSoft-TOF
+# ---------------------------------------------------------------------------------------------------------------------
+@dataclass
+class SyntheticPhi:
+    """Synthetic PHI SmartSoft-TOF `.raw` file together with the ground truth it was generated from."""
+
+    path: Path
+    events: np.ndarray  # (n, 3) x, y, channel of each event that should be kept
+    nx: int
+    ny: int
+    slope: float  # calibration that should be used by default
+    offset: float
+    n_invalid: int
+    n_off_raster: int
+    n_off_axis: int
+
+    def mz(self, channel: np.ndarray, slope: float | None = None, offset: float | None = None) -> np.ndarray:
+        """m/z of channel indices (channel 0 = StartFlightTime)."""
+        slope = self.slope if slope is None else slope
+        offset = self.offset if offset is None else offset
+        t_us = 0.5 + np.asarray(channel, dtype=np.float64) * 0.001
+        return (slope * t_us + offset) ** 2
+
+    def dense(self) -> dict[int, dict[int, int]]:
+        """Pixel index -> {channel: count}."""
+        out: dict[int, dict[int, int]] = {}
+        for x, y, channel in self.events:
+            pixel = out.setdefault(int(y * self.nx + x), {})
+            pixel[int(channel)] = pixel.get(int(channel), 0) + 1
+        return out
+
+
+PHI_SLOPE, PHI_OFFSET = 2.0, 0.0
+PHI_RECAL_SLOPE, PHI_RECAL_OFFSET = 2.01, 0.002
+
+
+def _phi_block(block_id: int, payload: bytes = b"", size: int | None = None) -> bytes:
+    return struct.pack("<H10sI", block_id, b"\x00" * 10, len(payload) if size is None else size) + payload
+
+
+def _phi_event(x: int, y: int, tof_ps: int, valid: bool = True) -> int:
+    return (y << 43) | (x << 32) | ((1 << 31) if valid else 0) | tof_ps
+
+
+def write_synthetic_phi(  # noqa: C901
+    directory: Path,
+    name: str = "synthetic.raw",
+    recalibrated: bool = False,
+    mosaic: bool = False,
+    header_overrides: dict[str, str | None] | None = None,
+    terminate_header: bool = True,
+) -> SyntheticPhi:
+    """Write a small PHI-like file: 4x4 raster (8x4 for `mosaic`), 2 frames, pixel (3, 3) without any ions.
+
+    Calibration: `sqrt(m/z) = 2 * t_us`, flight times 0.5-10 us in 1 ns channels, mass range 0.9-300, so channel 0
+    (m/z 1) is the first channel of the axis. Contains invalid records, off-raster and off-axis events, an unknown
+    block and optionally an appended recalibration block.
+    """
+    rng = np.random.default_rng(7)
+    n_pixels = 4
+    header_size = 2048
+    start_ps, bin_ps = 500_000, 1_000
+
+    tiles = [(0, 0), (1, 0)] if mosaic else [(0, 0)]
+    kept = []
+    frames: list[list[tuple[tuple[int, int], list[int]]]] = [[], []]
+    for frame in frames:
+        for tile in tiles:
+            words = []
+            for _ in range(150):
+                x, y = rng.integers(0, n_pixels, size=2)
+                if x == 3 and y == 3:
+                    continue
+                channel = int(rng.choice([10, 11, 500, 501, 3000, 7000]))
+                jitter = int(rng.integers(-400, 401))  # rounds back onto the channel
+                words.append(_phi_event(int(x), int(y), start_ps + channel * bin_ps + jitter))
+                kept.append((int(x) + tile[0] * n_pixels, int(y) + tile[1] * n_pixels, channel))
+            words += [
+                _phi_event(1, 1, start_ps + 10 * bin_ps, valid=False),  # missing valid bit
+                0xADADADADADADADAD,  # uninitialised fill, high bits set
+                _phi_event(n_pixels, 0, start_ps + 10 * bin_ps),  # off raster
+                _phi_event(0, 0, start_ps - 200 * bin_ps),  # before the flight time range
+                _phi_event(0, 0, start_ps + 9000 * bin_ps),  # above the mass range
+            ]
+            frame.append((tile, words))
+
+    header = {
+        "HeaderSize": str(header_size),
+        "ImagePixels": str(n_pixels),
+        "Mass/Time": str(PHI_SLOPE),
+        "MassOffset": str(PHI_OFFSET),
+        "StartFlightTime": "0.5",
+        "StopFlightTime": "10.0",
+        "SpecBinSize": "1.0",
+        "SecIonPolarity": "Negative",
+        "NoFrames": "2",
+        "Calibrated": "no",
+    }
+    for key, value in (header_overrides or {}).items():
+        if value is None:
+            header.pop(key, None)
+        else:
+            header[key] = value
+    lines = ["SOFH", *(f"{key}: {value}" for key, value in header.items())]
+    lines += ["[Acq Base]", "Start Mass (amu)=0.9", "End Mass (amu)=300.0", "MSMS Active=Inactive"]
+    lines += ["[PHI LMIG]", "Raster Size (um)=100.0", "Raster Size Calibration=1.550, 1.550"]
+    if terminate_header:
+        lines.append("EOFH")
+    text = ("\r\n".join(lines) + "\r\n").encode("latin-1")
+    assert len(text) < header_size
+    content = bytearray(text + b"\x00" * (header_size - len(text)))
+
+    for frame in frames:
+        for tile, words in frame:
+            if mosaic:
+                content += _phi_block(6, struct.pack("<II", *tile), size=0)
+            # split into two event blocks to exercise merging
+            data = np.asarray(words, dtype="<u8").tobytes()
+            half = (len(words) // 2) * 8
+            content += _phi_block(1, data[:half]) + _phi_block(1, data[half:])
+        content += _phi_block(2)
+    content += _phi_block(99, b"\x01" * 12)  # unknown block, skipped
+    if recalibrated:
+        info = f"AsciiInfoBlock01\r\nMass/Time: {PHI_RECAL_SLOPE}\r\nMassOffset: {PHI_RECAL_OFFSET}\r\n"
+        content += _phi_block(14, info.encode("latin-1"))
+    content += _phi_block(0)
+
+    path = Path(directory) / name
+    path.write_bytes(bytes(content))
+    events = np.asarray(kept, dtype=np.int64)
+    n_tiles = len(tiles) * len(frames)
+    return SyntheticPhi(
+        path=path,
+        events=events,
+        nx=n_pixels * len(tiles),
+        ny=n_pixels,
+        slope=PHI_RECAL_SLOPE if recalibrated else PHI_SLOPE,
+        offset=PHI_RECAL_OFFSET if recalibrated else PHI_OFFSET,
+        n_invalid=2 * n_tiles,
+        n_off_raster=n_tiles,
+        n_off_axis=2 * n_tiles,
+    )
