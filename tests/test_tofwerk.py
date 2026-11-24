@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import numpy as np
@@ -10,7 +11,7 @@ import pytest
 pytest.importorskip("h5py")
 
 from imzy import TofwerkReader, get_reader
-from imzy._readers.tofwerk import is_tofwerk
+from imzy._readers.tofwerk import _tofwerk, is_tofwerk
 
 from .utilities import SyntheticTofwerk, write_synthetic_tofwerk
 
@@ -154,3 +155,66 @@ def test_ion_images(synthetic: SyntheticTofwerk, mode: str) -> None:
     np.testing.assert_allclose(image[reader.y_coordinates, reader.x_coordinates], expected[:, 1], rtol=1e-5)
     # the pixel of the invalid spot is empty (BaseReader.reshape fills with 0)
     assert image[2, 1] == 0
+
+
+# --- spot table cache -------------------------------------------------------------------------------------------------
+def _fail_read_tables(_f: object) -> None:
+    raise AssertionError("the spot table should have been read from the cache")
+
+
+def test_cache_is_written_and_used(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    data = write_synthetic_tofwerk(tmp_path)
+    cache_path = _tofwerk.get_cache_path(data.path)
+    assert cache_path.name == "synthetic.h5.icache"
+    assert not cache_path.exists()
+
+    expected = TofwerkReader(data.path, roi=1)
+    assert cache_path.exists()
+    assert not is_tofwerk(cache_path)
+
+    # the cache holds both ROIs, so either can be opened without reading the tables from the file
+    monkeypatch.setattr(_tofwerk, "_read_tables", _fail_read_tables)
+    for roi in (0, 1):
+        reader = TofwerkReader(data.path, roi=roi)
+        np.testing.assert_array_equal(reader.xyz_coordinates, TofwerkReader(data.path, roi=roi).xyz_coordinates)
+    reader = TofwerkReader(data.path, roi=1)
+    np.testing.assert_array_equal(reader.stage_coordinates, expected.stage_coordinates)
+    np.testing.assert_array_equal(reader.get_spectrum(1)[1], expected.get_spectrum(1)[1])
+
+
+def test_cache_is_ignored_when_stale_or_corrupt(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    data = write_synthetic_tofwerk(tmp_path)
+    TofwerkReader(data.path)
+    cache_path = _tofwerk.get_cache_path(data.path)
+    calls: list[int] = []
+    read_tables = _tofwerk._read_tables
+
+    def _counting_read_tables(f: object) -> tuple[np.ndarray, np.ndarray]:
+        calls.append(1)
+        return read_tables(f)
+
+    monkeypatch.setattr(_tofwerk, "_read_tables", _counting_read_tables)
+    # the file changed after the cache was written
+    stat = data.path.stat()
+    os.utime(data.path, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1_000_000_000))
+    assert TofwerkReader(data.path).n_pixels == len(data.write_bufs[0])
+    assert len(calls) == 1
+    # ... and the cache was refreshed
+    TofwerkReader(data.path)
+    assert len(calls) == 1
+
+    cache_path.write_bytes(b"not a cache")
+    assert TofwerkReader(data.path).n_pixels == len(data.write_bufs[0])
+    assert len(calls) == 2
+
+
+def test_cache_write_failure_is_not_fatal(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    data = write_synthetic_tofwerk(tmp_path)
+
+    def _fail(*_args: object, **_kwargs: object) -> None:
+        raise PermissionError("read-only location")
+
+    monkeypatch.setattr(_tofwerk.os, "replace", _fail)
+    assert TofwerkReader(data.path).n_pixels == len(data.write_bufs[0])
+    assert not _tofwerk.get_cache_path(data.path).exists()
+    assert not list(tmp_path.glob(".*icache*"))
