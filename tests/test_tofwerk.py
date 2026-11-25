@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import typing as ty
 from pathlib import Path
 
 import numpy as np
@@ -218,3 +219,61 @@ def test_cache_write_failure_is_not_fatal(tmp_path: Path, monkeypatch: pytest.Mo
     assert TofwerkReader(data.path).n_pixels == len(data.write_bufs[0])
     assert not _tofwerk.get_cache_path(data.path).exists()
     assert not list(tmp_path.glob(".*icache*"))
+
+
+# --- file handle ------------------------------------------------------------------------------------------------------
+def test_file_stays_open_between_reads(synthetic: SyntheticTofwerk) -> None:
+    reader = TofwerkReader(synthetic.path)
+    reader.get_spectrum(0)
+    handle = reader._h5
+    for i in range(reader.n_pixels):
+        reader.get_spectrum(i)
+    reader.get_tic(silent=True)
+    assert reader._h5 is handle and handle.id.valid
+
+
+def test_close_and_reopen(synthetic: SyntheticTofwerk) -> None:
+    with TofwerkReader(synthetic.path) as reader:
+        expected = reader.get_spectrum(1)[1].copy()
+        handle = reader._h5
+    assert not handle.id.valid
+    assert reader._h5 is None
+    # the reader is still usable and opens the file again
+    np.testing.assert_array_equal(reader.get_spectrum(1)[1], expected)
+    reader.close()
+    reader.close()
+
+
+def test_pickle_drops_handle(synthetic: SyntheticTofwerk) -> None:
+    import pickle
+
+    reader = TofwerkReader(synthetic.path, mode="profile")
+    expected = reader.get_spectrum(2)[1]
+    copy = pickle.loads(pickle.dumps(reader))
+    assert copy._h5 is None
+    np.testing.assert_array_equal(copy.get_spectrum(2)[1], expected)
+    assert copy._h5 is not reader._h5
+
+
+def _child_spectrum(reader: TofwerkReader, queue: ty.Any) -> None:
+    queue.put((reader.get_spectrum(3)[1], reader._h5_pid))
+
+
+@pytest.mark.skipif(not hasattr(os, "fork"), reason="fork is not available")
+def test_forked_child_opens_own_handle(synthetic: SyntheticTofwerk) -> None:
+    import multiprocessing
+
+    reader = TofwerkReader(synthetic.path)
+    expected = reader.get_spectrum(3)[1]
+    ctx = multiprocessing.get_context("fork")
+    queue = ctx.Queue()
+    process = ctx.Process(target=_child_spectrum, args=(reader, queue))
+    process.start()
+    spectrum, child_pid = queue.get(timeout=30)
+    process.join(timeout=30)
+    assert process.exitcode == 0
+    np.testing.assert_array_equal(spectrum, expected)
+    assert child_pid == process.pid != os.getpid()
+    # the parent handle is untouched
+    assert reader._h5.id.valid
+    np.testing.assert_array_equal(reader.get_spectrum(3)[1], expected)

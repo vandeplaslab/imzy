@@ -168,13 +168,52 @@ class TofwerkReader(BaseReader):
         self.mode = mode
         self._init()
 
+    # the HDF5 file stays open between reads; it is (re)opened on first use, after `close()` and in forked processes
+    _h5: ty.Any = None
+    _h5_pid: int | None = None
+    _h5_dataset: ty.Any = None
+
+    def _file(self) -> ty.Any:
+        """Return the open HDF5 file."""
+        if self._h5 is None or self._h5_pid != os.getpid() or not self._h5.id.valid:
+            import h5py
+
+            # a handle inherited from the parent process must not be used (or closed) in a forked child
+            self._h5 = h5py.File(self.path, "r")
+            self._h5_pid = os.getpid()
+            self._h5_dataset = None
+        return self._h5
+
+    def _dataset(self) -> ty.Any:
+        """Return the open data cube (`PeakData/PeakData` or `FullSpectra/TofData`)."""
+        f = self._file()
+        if self._h5_dataset is None:
+            self._h5_dataset = f[self._data_key]
+        return self._h5_dataset
+
     @contextmanager
     def _open(self) -> ty.Iterator[ty.Any]:
-        """Open the file for reading."""
-        import h5py
+        """Yield the open HDF5 file; it is not closed afterwards (see `close`)."""
+        yield self._file()
 
-        with h5py.File(self.path, "r") as f:
-            yield f
+    def close(self) -> None:
+        """Close the HDF5 file; it is opened again if the reader is used afterwards."""
+        if self._h5 is not None and self._h5_pid == os.getpid():
+            self._h5.close()
+        self._h5 = self._h5_pid = self._h5_dataset = None
+
+    def __enter__(self) -> TofwerkReader:
+        return self
+
+    def __exit__(self, *args: ty.Any) -> None:
+        self.close()
+
+    def __getstate__(self) -> dict[str, ty.Any]:
+        # HDF5 handles cannot be pickled; the copy opens its own handle when used
+        state = self.__dict__.copy()
+        for key in ("_h5", "_h5_pid", "_h5_dataset"):
+            state.pop(key, None)
+        return state
 
     # ------------------------------------------------------------------------------------------------------------
     # initialization
@@ -330,20 +369,18 @@ class TofwerkReader(BaseReader):
         boundaries = np.flatnonzero(np.diff(writes)) + 1
         starts = np.concatenate(([0], boundaries))
         ends = np.concatenate((boundaries, [len(indices)]))
-        with self._open() as f:
-            ds = f[self._data_key]
-            for start, end in zip(starts, ends, strict=True):
-                run = bufs[start:end]
-                lo, hi = int(run.min()), int(run.max())
-                slab = ds[int(writes[start]), lo : hi + 1, 0, :]
-                yield slice(int(start), int(end)), slab[run - lo]
+        ds = self._dataset()
+        for start, end in zip(starts, ends, strict=True):
+            run = bufs[start:end]
+            lo, hi = int(run.min()), int(run.max())
+            slab = ds[int(writes[start]), lo : hi + 1, 0, :]
+            yield slice(int(start), int(end)), slab[run - lo]
 
     def _read_spectrum(self, index: int) -> tuple[np.ndarray, np.ndarray]:
         """Return `(m/z, intensities)` of a pixel."""
         if not 0 <= index < self.n_pixels:
             raise IndexError(f"Pixel index {index} is out of bounds for {self.n_pixels} pixels.")
-        with self._open() as f:
-            return self._mz, f[self._data_key][self._writes[index], self._bufs[index], 0, :]
+        return self._mz, self._dataset()[self._writes[index], self._bufs[index], 0, :]
 
     def _read_spectra(self, indices: np.ndarray | None = None) -> ty.Iterator[tuple[np.ndarray, np.ndarray]]:
         indices = self.pixels if indices is None else np.asarray(indices, dtype=np.int64)
