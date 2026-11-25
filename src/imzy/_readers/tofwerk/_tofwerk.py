@@ -19,13 +19,18 @@ The laser software adds the `ImageData` group which maps laser spots to the data
 
 from __future__ import annotations
 
+import json
+import os
+import tempfile
 import typing as ty
 from contextlib import contextmanager
 from pathlib import Path
+from zipfile import BadZipFile
 
 import numpy as np
 from ims_utils.spectrum import get_mzs_for_tol
 from koyo.typing import PathLike
+from loguru import logger
 from tqdm import tqdm
 
 from imzy._readers._base import BaseReader
@@ -39,6 +44,68 @@ PEAK_DATA = "PeakData/PeakData"
 PEAK_TABLE = "PeakData/PeakTable"
 TOF_DATA = "FullSpectra/TofData"
 MASS_AXIS = "FullSpectra/MassAxis"
+CACHE_VERSION = 1
+
+
+def get_cache_path(path: PathLike) -> Path:
+    """Return the path of the spot table cache, written next to the `.h5` file (e.g. `name.h5.icache`)."""
+    path = Path(path)
+    return path.with_name(path.name + ".icache")
+
+
+def _fingerprint(path: Path) -> str:
+    """Identify the source file and its version without hashing its contents."""
+    stat = path.stat()
+    return json.dumps([str(path.resolve()), stat.st_size, stat.st_mtime_ns])
+
+
+def _load_table_cache(path: Path) -> tuple[np.ndarray, np.ndarray] | None:
+    """Return cached `(spots, scans)` tables, or None if the cache is missing, stale or corrupt."""
+    cache_path = get_cache_path(path)
+    if not cache_path.is_file():
+        return None
+    try:
+        with np.load(cache_path, allow_pickle=False) as cache:
+            if int(cache["cache_version"].item()) != CACHE_VERSION:
+                return None
+            if str(cache["source_fingerprint"].item()) != _fingerprint(path):
+                return None
+            spots, scans = cache["spots"], cache["scans"]
+    except (OSError, KeyError, ValueError, BadZipFile):
+        return None
+    if spots.ndim != 2 or spots.shape[1] != 6 or scans.ndim != 2 or scans.shape[1] != 6:
+        return None
+    return spots, scans
+
+
+def _save_table_cache(path: Path, spots: np.ndarray, scans: np.ndarray) -> None:
+    """Atomically write the spot table cache; failures (e.g. read-only location) only log a warning."""
+    cache_path = get_cache_path(path)
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=cache_path.parent, prefix=f".{cache_path.name}.", delete=False) as stream:
+            temp_path = Path(stream.name)
+            np.savez(
+                stream,
+                cache_version=CACHE_VERSION,
+                source_fingerprint=_fingerprint(path),
+                spots=spots,
+                scans=scans,
+            )
+        os.replace(temp_path, cache_path)
+    except OSError as exc:
+        logger.warning(f"Could not write cache file '{cache_path}' ({exc}).")
+    finally:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
+
+
+def _read_tables(f: ty.Any) -> tuple[np.ndarray, np.ndarray]:
+    """Read the spot and scan tables from an open file.
+
+    TofDAQ stores the spot table with one compressed HDF5 chunk per row, so reading it takes seconds for large images.
+    """
+    return f[SPOT_DATA][:], f[SCAN_DATA][:]
 
 
 def _decode(value: ty.Any) -> ty.Any:
@@ -77,6 +144,9 @@ class TofwerkReader(BaseReader):
     Each valid laser spot of the selected scans becomes one pixel. Spot coordinates (micrometers) are snapped onto a
     regular grid using the spot spacing as the pixel size.
 
+    The spot and scan tables are slow to read, so they are cached next to the file (`<name>.h5.icache`). The cache is
+    ignored when the file changes, and the reader carries on without it if it cannot be written.
+
     Parameters
     ----------
     path : PathLike
@@ -98,18 +168,58 @@ class TofwerkReader(BaseReader):
         self.mode = mode
         self._init()
 
+    # the HDF5 file stays open between reads; it is (re)opened on first use, after `close()` and in forked processes
+    _h5: ty.Any = None
+    _h5_pid: int | None = None
+    _h5_dataset: ty.Any = None
+
+    def _file(self) -> ty.Any:
+        """Return the open HDF5 file."""
+        if self._h5 is None or self._h5_pid != os.getpid() or not self._h5.id.valid:
+            import h5py
+
+            # a handle inherited from the parent process must not be used (or closed) in a forked child
+            self._h5 = h5py.File(self.path, "r")
+            self._h5_pid = os.getpid()
+            self._h5_dataset = None
+        return self._h5
+
+    def _dataset(self) -> ty.Any:
+        """Return the open data cube (`PeakData/PeakData` or `FullSpectra/TofData`)."""
+        f = self._file()
+        if self._h5_dataset is None:
+            self._h5_dataset = f[self._data_key]
+        return self._h5_dataset
+
     @contextmanager
     def _open(self) -> ty.Iterator[ty.Any]:
-        """Open the file for reading."""
-        import h5py
+        """Yield the open HDF5 file; it is not closed afterwards (see `close`)."""
+        yield self._file()
 
-        with h5py.File(self.path, "r") as f:
-            yield f
+    def close(self) -> None:
+        """Close the HDF5 file; it is opened again if the reader is used afterwards."""
+        if self._h5 is not None and self._h5_pid == os.getpid():
+            self._h5.close()
+        self._h5 = self._h5_pid = self._h5_dataset = None
+
+    def __enter__(self) -> TofwerkReader:
+        return self
+
+    def __exit__(self, *args: ty.Any) -> None:
+        self.close()
+
+    def __getstate__(self) -> dict[str, ty.Any]:
+        # HDF5 handles cannot be pickled; the copy opens its own handle when used
+        state = self.__dict__.copy()
+        for key in ("_h5", "_h5_pid", "_h5_dataset"):
+            state.pop(key, None)
+        return state
 
     # ------------------------------------------------------------------------------------------------------------
     # initialization
     # ------------------------------------------------------------------------------------------------------------
     def _init(self) -> None:
+        cached = _load_table_cache(self.path)
         with self._open() as f:
             for key in (SPOT_DATA, SCAN_DATA):
                 if key not in f:
@@ -117,8 +227,7 @@ class TofwerkReader(BaseReader):
             self._data_key = PEAK_DATA if self.mode == "peaks" else TOF_DATA
             if self._data_key not in f:
                 raise ValueError(f"'{self.path}' does not contain '{self._data_key}' needed for mode '{self.mode}'.")
-            spots = f[SPOT_DATA][:]
-            scans = f[SCAN_DATA][:]
+            spots, scans = _read_tables(f) if cached is None else cached
             scan_attrs = f["ImageData/ScanData"].attrs
             self._scan_names = [str(_decode(scan_attrs.get(f"ScanName{i:05d}", ""))) for i in range(len(scans))]
             self._metadata = {
@@ -132,11 +241,15 @@ class TofwerkReader(BaseReader):
             else:
                 self._mz = f[MASS_AXIS][:].astype(np.float64)
                 self._labels = []
+        if cached is None:
+            _save_table_cache(self.path, spots, scans)
         if np.any(np.diff(self._mz) < 0):
             raise ValueError("The m/z axis of the file is not sorted.")
         self._mz.flags.writeable = False
+        self._init_spots(spots, scans)
 
-        # select spots of the requested sample type
+    def _init_spots(self, spots: np.ndarray, scans: np.ndarray) -> None:
+        """Select the valid spots of the requested sample type and snap their stage coordinates onto a grid."""
         sample_types = scans[:, 1].astype(int)
         self._rois = np.unique(sample_types).tolist()
         if self.roi not in self._rois:
@@ -256,20 +369,18 @@ class TofwerkReader(BaseReader):
         boundaries = np.flatnonzero(np.diff(writes)) + 1
         starts = np.concatenate(([0], boundaries))
         ends = np.concatenate((boundaries, [len(indices)]))
-        with self._open() as f:
-            ds = f[self._data_key]
-            for start, end in zip(starts, ends, strict=True):
-                run = bufs[start:end]
-                lo, hi = int(run.min()), int(run.max())
-                slab = ds[int(writes[start]), lo : hi + 1, 0, :]
-                yield slice(int(start), int(end)), slab[run - lo]
+        ds = self._dataset()
+        for start, end in zip(starts, ends, strict=True):
+            run = bufs[start:end]
+            lo, hi = int(run.min()), int(run.max())
+            slab = ds[int(writes[start]), lo : hi + 1, 0, :]
+            yield slice(int(start), int(end)), slab[run - lo]
 
     def _read_spectrum(self, index: int) -> tuple[np.ndarray, np.ndarray]:
         """Return `(m/z, intensities)` of a pixel."""
         if not 0 <= index < self.n_pixels:
             raise IndexError(f"Pixel index {index} is out of bounds for {self.n_pixels} pixels.")
-        with self._open() as f:
-            return self._mz, f[self._data_key][self._writes[index], self._bufs[index], 0, :]
+        return self._mz, self._dataset()[self._writes[index], self._bufs[index], 0, :]
 
     def _read_spectra(self, indices: np.ndarray | None = None) -> ty.Iterator[tuple[np.ndarray, np.ndarray]]:
         indices = self.pixels if indices is None else np.asarray(indices, dtype=np.int64)
